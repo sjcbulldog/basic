@@ -1,0 +1,14 @@
+TODO
+- fix disconnect and reconnect
+- fix client disconnects
+- message on wifi connect
+- switch to emFile file system
+- deal with parse error with 'load' command
+- change networksvc from a while (1) sleep -> an event
+- make let keyword be optional
+- find HP basic references
+
+DONE
+- interpret telnet protocol in-band commands correctly
+- fix cls not rehoming cursor
+- fix flistflist

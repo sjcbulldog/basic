@@ -104,7 +104,7 @@ INCLUDES=
 ifeq ($(findstring FREERTOS, $(COMPONENTS)), FREERTOS)
 # Custom configuration of mbedtls library.
 MBEDTLSFLAGS=MBEDTLS_USER_CONFIG_FILE='"mbedtls_user_config.h"'
-DEFINES+=$(MBEDTLSFLAGS)
+DEFINES+=$(MBEDTLSFLAGS) SECURE_SOCKETS_THREAD_STACKSIZE=12*1024
 endif
 
 # Add additional defines to the build process (without a leading -D).

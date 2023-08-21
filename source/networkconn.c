@@ -61,6 +61,14 @@ static cy_rslt_t softap_start(void)
     return result;
 }
 
+static void connected_callback(cy_wcm_event_t event, cy_wcm_event_data_t *data)
+{
+    if (event == CY_WCM_EVENT_STA_JOINED_SOFTAP)
+    {
+        printf("  remote client connected to the WIFI access point\n") ;
+    }
+}
+
 void network_connect_task(void *param)
 {
     cy_rslt_t result;
@@ -75,6 +83,8 @@ void network_connect_task(void *param)
         printf("Wi-Fi Connection Manager initialization failed! Error code: 0x%08x\n", (unsigned int)result);
         CY_ASSERT(0);
     }
+
+    cy_wcm_register_event_callback(connected_callback);
 
     /* Start the Wi-Fi device as a Soft AP interface. */
     result = softap_start();

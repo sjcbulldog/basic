@@ -9,7 +9,7 @@
 
 #define NETWORKCONN_TASK_STACK_SIZE         (5 * 1024)
 #define NETWORKCONN_TASK_PRIORITY           (2)
-#define NETWORKSVC_TASK_STACK_SIZE          (16 * 1024)
+#define NETWORKSVC_TASK_STACK_SIZE          (64 * 1024)
 #define NETWORKSVC_TASK_PRIORITY            (3)
 #define FSINIT_TASK_STACK_SIZE              (5 * 1024)
 #define FSINIT_TASK_PRIORITY                (2)
@@ -32,6 +32,8 @@ void control_task(void *param)
     while (!network_connect_done()) {
         vTaskDelay(500/portTICK_PERIOD_MS);
     }
+
+    printf("\n\nBasic06 Ready\n") ;
 
     xTaskCreate(network_service_task, "NetworkService", NETWORKCONN_TASK_STACK_SIZE, NULL, NETWORKCONN_TASK_PRIORITY, NULL);
     while (true) {
