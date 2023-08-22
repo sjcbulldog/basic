@@ -7,9 +7,9 @@
 #include <stdio.h>
 #include <ctype.h>
 
-#define TCP_KEEP_ALIVE_IDLE_TIME_MS (10000u)
+#define TCP_KEEP_ALIVE_IDLE_TIME_MS (1000000u)
 #define TCP_KEEP_ALIVE_INTERVAL_MS (1000u)
-#define TCP_KEEP_ALIVE_RETRY_COUNT (2u)
+#define TCP_KEEP_ALIVE_RETRY_COUNT (2000u)
 
 static cy_socket_t gSocket;
 static cy_socket_t gClient;

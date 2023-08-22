@@ -416,10 +416,12 @@ static int operator_top = 0 ;
 
 static bool push_operand(basic_operand_t *o)
 {
+    assert(o != NULL) ;
+
     if (operand_top == sizeof(operand_stack)/sizeof(operand_stack[0])) {
         return false;
     }
-    operand_stack[operand_top++]  = 0 ;
+    operand_stack[operand_top++]  = o ;
     return true ;
 }
 
@@ -431,10 +433,13 @@ static basic_operand_t *pop_operand()
 
 static bool push_operator(basic_operand_t *o)
 {
-    if (operator_top == sizeof(operand_stack)/sizeof(operator_stack[0])) {
+    assert(o != NULL) ;
+
+    assert(o->type_ == BASIC_OPERAND_TYPE_OPERATOR);
+    if (operator_top == sizeof(operator_stack)/sizeof(operator_stack[0])) {
         return false;
     }
-    operator_stack[operator_top++]  = 0 ;
+    operator_stack[operator_top++] = o ;
     return true ;
 }
 
@@ -473,7 +478,7 @@ static void reduce()
 
 static basic_operand_t *parse_expr(const char *line, basic_err_t *err)
 {
-    basic_operand_t *operand1, *op1, *op2 ;
+    basic_operand_t *operand1, *operand2, *op1, *op2 ;
     operator_table_t *o1, *o2 ;
 
     line = parse_operand(line, &operand1, err) ;
@@ -505,12 +510,12 @@ static basic_operand_t *parse_expr(const char *line, basic_err_t *err)
 
     while (true)
     {
-        line = parse_operand(line, &operand1, err) ;
+        line = parse_operand(line, &operand2, err) ;
         if (line == NULL) {
             return NULL ;
         }
 
-        if (!push_operand(operand1)) {
+        if (!push_operand(operand2)) {
             *err = BASIC_ERR_TOO_COMPLEX;
             return NULL ;
         }
@@ -519,10 +524,11 @@ static basic_operand_t *parse_expr(const char *line, basic_err_t *err)
         if (*err != BASIC_ERR_NONE) {
             while (operator_top > 0) {
                 reduce() ;
-
-                *err = BASIC_ERR_NONE ;
-                return pop_operand();
             }
+
+            *err = BASIC_ERR_NONE ;
+            basic_operand_t *ret = pop_operand();
+            return ret ;
         }
 
         op2 = createOperator(o2);
