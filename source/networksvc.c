@@ -4,6 +4,7 @@
 #include "cy_secure_sockets.h"
 #include "basicproc.h"
 #include "basicexec.h"
+#include "basictask.h"
 #include <stdio.h>
 #include <ctype.h>
 
@@ -19,7 +20,6 @@ static char mbuffer[32];
 static bool connected = false;
 static uint8_t response[3];
 
-static const char *prompt = "Basic06> ";
 
 #define MAKE_IPV4_ADDRESS(a, b, c, d) ((((uint32_t)d) << 24) | \
                                        (((uint32_t)c) << 16) | \
@@ -50,14 +50,8 @@ cy_rslt_t network_svc_send_data(const char *buffer, int length)
     return CY_RSLT_SUCCESS;
 }
 
-static inline void show_prompt()
-{
-    network_svc_send_data(prompt, strlen(prompt));
-}
-
 static cy_rslt_t tcp_connection_handler(cy_socket_t socket_handle, void *arg)
 {
-    basic_err_t err;
     cy_rslt_t result;
     uint32_t keep_alive_interval = TCP_KEEP_ALIVE_INTERVAL_MS;
     uint32_t keep_alive_count = TCP_KEEP_ALIVE_RETRY_COUNT;
@@ -97,9 +91,6 @@ static cy_rslt_t tcp_connection_handler(cy_socket_t socket_handle, void *arg)
     connected = true;
 
     printf("  telnet client connected\n");
-
-    basic_cls(NULL, &err);
-    show_prompt();
 
     return result;
 }
@@ -214,7 +205,7 @@ void network_service_task(void *param)
                 //
                 printf("  telnet session disconnected - waiting for new connection\n") ;
                 connected = 0;
-                basic_clear(NULL, &err) ;
+                basic_clear(NULL, &err, network_svc_send_data) ;
                 listenSocket();
             }
             else if (result != CY_RSLT_SUCCESS)
@@ -244,11 +235,11 @@ void network_service_task(void *param)
 
                     if (!isEmptyLine(rx_buffer_data))
                     {
-                        if (basic_line_proc((const char *)rx_buffer_data))
-                        {
-                            show_prompt();
+                        if (!basic_queue_line((const char *)rx_buffer_data, network_svc_send_data)) {
+                            // TODO - out of memory error
                         }
                     }
+                    
                     rx_buffer_received = 0;
                 }
             }

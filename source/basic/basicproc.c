@@ -12,6 +12,8 @@
 #include <string.h>
 #include <stdbool.h>
 
+static const char *prompt = "Basic06> ";
+
 static token_table_t tokens[] = 
 {
     { BTOKEN_RUN, "run" },
@@ -345,14 +347,23 @@ static bool parse_print(basic_line_t *bline, const char *line, basic_err_t *err)
         }      
 
         line = skipSpaces(line) ;
-        if (*line == ',') {
+        if (*line == '\0') {
+            break ;
+        }
+        else if (*line == ',') {
             line++ ;
             if (!add_token(bline, BTOKEN_COMMA)) {
                 *err = BASIC_ERR_OUT_OF_MEMORY ;
                 return false ;        
             }
         }
+        else {
+            *err = BASIC_ERR_EXTRA_CHARS ;
+            return false ;
+        }
     }
+
+    return true ;
 }
 
 static bool parse_let(basic_line_t *bline, const char *line, basic_err_t *err)
@@ -551,7 +562,7 @@ static basic_line_t *tokenize(const char *line, basic_err_t *err)
 }
 
 static char msg[128] ;
-bool basic_line_proc(const char *line)
+bool basic_line_proc(const char *line, basic_out_fn_t outfn)
 {
     bool rval = true ;
     basic_err_t code ;
@@ -566,7 +577,7 @@ bool basic_line_proc(const char *line)
     }
 
     if (ret->lineno_ == -1) {
-        basic_exec_line(ret) ;
+        basic_exec_line(ret, outfn) ;
         basic_destroy_line(ret);
     }
     else {
@@ -576,7 +587,7 @@ bool basic_line_proc(const char *line)
     return rval;
 }
 
-bool basic_proc_load(const char *filename, basic_err_t *err)
+bool basic_proc_load(const char *filename, basic_err_t *err, basic_out_fn_t outfn)
 {
     FIL fp ;
     FRESULT res ;
@@ -597,7 +608,7 @@ bool basic_proc_load(const char *filename, basic_err_t *err)
 
         res = f_read(&fp, linebuf + index, sizeof(linebuf) - index, &got) ;
         if (res != FR_OK) {
-            basic_clear(NULL, err);
+            basic_clear(NULL, err, outfn);
             *err = BASIC_ERR_IO_ERROR ;
             return false ;
         }
@@ -607,7 +618,7 @@ bool basic_proc_load(const char *filename, basic_err_t *err)
         while (index < got) {
             if (linebuf[index] == '\n') {
                 linebuf[index] = '\0' ;
-                basic_line_proc(linebuf) ;
+                basic_line_proc(linebuf, outfn) ;
                 memcpy(linebuf, linebuf + index + 1, got - index);
                 index = 0 ;
             }
@@ -622,10 +633,17 @@ bool basic_proc_load(const char *filename, basic_err_t *err)
     //
     if (index != 0) {
         linebuf[index + 1] = '\0';
-        basic_line_proc(linebuf);
+        basic_line_proc(linebuf, outfn);
     }
 
     f_close(&fp) ;
 
     return true;
 }
+
+void basic_prompt(basic_out_fn_t outfn)
+{
+    (*outfn)(prompt, strlen(prompt)) ;
+}
+
+

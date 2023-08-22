@@ -23,6 +23,11 @@ static uint32_t lineToString(basic_line_t *line)
         return STR_INVALID ;
     }
 
+    if (!str_add_str(str, " ")) {
+        str_destroy(str) ;
+        return STR_INVALID ;        
+    }
+
     if (!str_add_str(str, basic_token_to_str(line->tokens_[0]))) {
         str_destroy(str) ;
         return STR_INVALID ;
@@ -154,14 +159,14 @@ void basic_store_line(basic_line_t *line)
     }
 }
 
-basic_line_t *basic_cls(basic_line_t *line, basic_err_t *err)
+basic_line_t *basic_cls(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     cy_rslt_t res ;
 
     *err = BASIC_ERR_NONE ;
 
     int len = strlen(clearscreen) ;
-    res = network_svc_send_data(clearscreen, len) ;
+    res = (*outfn)(clearscreen, len) ;
     if (res != CY_RSLT_SUCCESS) {
         *err = BASIC_ERR_NETWORK_ERROR ;
         return NULL ;
@@ -174,18 +179,18 @@ basic_line_t *basic_cls(basic_line_t *line, basic_err_t *err)
     return line->next_ ;
 }
 
-basic_line_t *basic_run(basic_line_t *line, basic_err_t *err)
+basic_line_t *basic_run(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     *err = BASIC_ERR_NONE ;
     return NULL ;
 }
 
-basic_line_t *basic_list(basic_line_t *line, basic_err_t *err)
+basic_line_t *basic_list(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     static const char *empty_message = "No Program Stored\n" ;
 
     if (program == NULL) {
-        network_svc_send_data(empty_message, strlen(empty_message));
+        (*outfn)(empty_message, strlen(empty_message));
     }
     else {
         basic_line_t *pgm = program ;
@@ -204,8 +209,9 @@ basic_line_t *basic_list(basic_line_t *line, basic_err_t *err)
             }
 
             const char *strval = str_value(str) ;
-            network_svc_send_data(strval, strlen(strval));
+            (*outfn)(strval, strlen(strval));
             str_destroy(str) ;
+            
             pgm = pgm->next_ ;
         }
     }
@@ -216,7 +222,7 @@ basic_line_t *basic_list(basic_line_t *line, basic_err_t *err)
     return line->next_ ;
 }
 
-basic_line_t *basic_flist(basic_line_t *line, basic_err_t *err)
+basic_line_t *basic_flist(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     DIR dp ;
     FILINFO info ;
@@ -230,9 +236,9 @@ basic_line_t *basic_flist(basic_line_t *line, basic_err_t *err)
     }
 
     strcpy(outline, "FileName        Size\n");
-    network_svc_send_data(outline, strlen(outline));
+    (*outfn)(outline, strlen(outline));
     strcpy(outline, "============================\n") ;
-    network_svc_send_data(outline, strlen(outline));
+    (*outfn)(outline, strlen(outline));
 
     const char *name ;
     while (true) {
@@ -266,15 +272,15 @@ basic_line_t *basic_flist(basic_line_t *line, basic_err_t *err)
         
         outline[index] = '\n' ;      
 
-        network_svc_send_data(outline, sizeof(outline)) ;
+        (*outfn)(outline, sizeof(outline)) ;
     }
 
-    network_svc_send_data("\n", 1);
+    (*outfn)("\n", 1);
     f_closedir(&dp);
     return line->next_ ;
 }
 
-basic_line_t *basic_clear(basic_line_t *line, basic_err_t *err)
+basic_line_t *basic_clear(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     basic_line_t *pgm = program ;
 
@@ -288,7 +294,7 @@ basic_line_t *basic_clear(basic_line_t *line, basic_err_t *err)
     return NULL ;
 }
 
-basic_line_t *basic_print(basic_line_t *line, basic_err_t *err)
+basic_line_t *basic_print(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     int index = 1 ;
 
@@ -300,7 +306,7 @@ basic_line_t *basic_print(basic_line_t *line, basic_err_t *err)
             return NULL ;
 
         const char *str = basic_value_to_string(value) ;
-        network_svc_send_data(str, strlen(str)) ;
+        (*outfn)(str, strlen(str)) ;
 
         if(index == line->count_)
             break ;
@@ -312,13 +318,16 @@ basic_line_t *basic_print(basic_line_t *line, basic_err_t *err)
     return line->next_ ;
 }
 
-basic_line_t *basic_let(basic_line_t *line, basic_err_t *err)
+basic_line_t *basic_let(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     // We expect a token pattern of BTOKEN_LET, VAR, EXPR
-    assert(line->count_ == 9);
+    assert(line->count_ == 11);
+    assert(line->tokens_[0] == BTOKEN_LET) ;
+    assert(line->tokens_[1] == BTOKEN_VAR) ;
+    assert(line->tokens_[5] == BTOKEN_EXPR) ;
 
-    uint32_t varindex = getU32(line, 1) ;
-    uint32_t exprindex = getU32(line, 5) ;
+    uint32_t varindex = getU32(line, 2) ;
+    uint32_t exprindex = getU32(line, 7) ;
 
     basic_value_t *value = basic_eval_expr(exprindex, err) ;
     if (value == NULL)
@@ -330,42 +339,42 @@ basic_line_t *basic_let(basic_line_t *line, basic_err_t *err)
     return line->next_ ;
 }
 
-basic_line_t *basic_if(basic_line_t *line, basic_err_t *err)
+basic_line_t *basic_if(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     return NULL ;
 }
 
-basic_line_t *basic_then(basic_line_t *line, basic_err_t *err)
+basic_line_t *basic_then(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     return NULL ;
 }
 
-basic_line_t *basic_else(basic_line_t *line, basic_err_t *err)
+basic_line_t *basic_else(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     return NULL ;
 }
 
-basic_line_t *basic_for(basic_line_t *line, basic_err_t *err)
+basic_line_t *basic_for(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     return NULL ;
 }
 
-basic_line_t *basic_to(basic_line_t *line, basic_err_t *err)
+basic_line_t *basic_to(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     return NULL ;
 }
 
-basic_line_t *basic_goto(basic_line_t *line, basic_err_t *err)
+basic_line_t *basic_goto(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     return NULL ;
 }
 
-basic_line_t *basic_gosub(basic_line_t *line, basic_err_t *err)
+basic_line_t *basic_gosub(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     return NULL ;
 }
 
-basic_line_t *basic_save(basic_line_t *line, basic_err_t *err)
+basic_line_t *basic_save(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     FIL fp ;
     FRESULT res ;
@@ -422,7 +431,7 @@ basic_line_t *basic_save(basic_line_t *line, basic_err_t *err)
     return line->next_ ;
 }
 
-basic_line_t *basic_load(basic_line_t *line, basic_err_t *err)
+basic_line_t *basic_load(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     uint32_t expr = getU32(line, 1);
     basic_value_t *value = basic_eval_expr(expr, err) ;
@@ -437,14 +446,14 @@ basic_line_t *basic_load(basic_line_t *line, basic_err_t *err)
     strcpy(filename, "/") ;
     strcat(filename, value->value.svalue_);
 
-    if (!basic_proc_load(filename, err))
+    if (!basic_proc_load(filename, err, outfn))
         return NULL ;
     
     
     return NULL ;
 }
 
-static basic_line_t *exec_one_line(basic_line_t *line, basic_err_t *err)
+static basic_line_t *exec_one_line(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     basic_line_t *next = line->next_ ;
     assert(line != NULL) ;
@@ -454,67 +463,67 @@ static basic_line_t *exec_one_line(basic_line_t *line, basic_err_t *err)
 
     switch(line->tokens_[0]) {
         case BTOKEN_CLS:
-            next = basic_cls(line, err) ;
+            next = basic_cls(line, err, outfn) ;
             break ;
 
         case BTOKEN_RUN:
-            next = basic_run(line, err) ;
+            next = basic_run(line, err, outfn) ;
             break ;
 
         case BTOKEN_LIST:
-            next = basic_list(line, err) ;
+            next = basic_list(line, err, outfn) ;
             break ;
 
         case BTOKEN_CLEAR:
-            next = basic_clear(line, err) ;
+            next = basic_clear(line, err, outfn) ;
             break ;
 
         case BTOKEN_FLIST:
-            next = basic_flist(line, err) ;
+            next = basic_flist(line, err, outfn) ;
             break ;            
 
         case BTOKEN_LET:
-            next = basic_let(line, err) ;
+            next = basic_let(line, err, outfn) ;
             break ;
 
         case BTOKEN_PRINT:
-            next = basic_print(line, err) ;
+            next = basic_print(line, err, outfn) ;
             break;
 
         case BTOKEN_IF:
-            next = basic_if(line, err) ;
+            next = basic_if(line, err, outfn) ;
             break ;
 
         case BTOKEN_THEN:
-            next = basic_then(line, err) ;
+            next = basic_then(line, err, outfn) ;
             break ;
 
         case BTOKEN_ELSE:
-            next = basic_else(line, err) ;
+            next = basic_else(line, err, outfn) ;
             break ;
 
         case BTOKEN_FOR:
-            next = basic_for(line, err) ;
+            next = basic_for(line, err, outfn) ;
             break ;
 
         case BTOKEN_TO:
-            next = basic_to(line, err) ;
+            next = basic_to(line, err, outfn) ;
             break ;
 
         case BTOKEN_GOTO:
-            next = basic_goto(line, err) ;
+            next = basic_goto(line, err, outfn) ;
             break ;
 
         case BTOKEN_GOSUB:
-            next = basic_gosub(line, err) ;
+            next = basic_gosub(line, err, outfn) ;
             break ;
 
         case BTOKEN_SAVE:
-            next = basic_save(line, err) ;
+            next = basic_save(line, err, outfn) ;
             break ;
 
         case BTOKEN_LOAD:
-            next = basic_load(line, err) ;
+            next = basic_load(line, err, outfn) ;
             break ;        
 
         default:
@@ -525,12 +534,12 @@ static basic_line_t *exec_one_line(basic_line_t *line, basic_err_t *err)
     return next ;
 }
 
-int basic_exec_line(basic_line_t *line)
+int basic_exec_line(basic_line_t *line, basic_out_fn_t outfn)
 {
     basic_err_t code = BASIC_ERR_NONE ;
 
     while (1) {
-        line = exec_one_line(line, &code) ;
+        line = exec_one_line(line, &code, outfn) ;
 
         // Error executing the last line
         if (code != BASIC_ERR_NONE)

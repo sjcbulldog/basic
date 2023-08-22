@@ -2,6 +2,8 @@
 #include "networkconn.h"
 #include "networksvc.h"
 #include "initfs.h"
+#include "basictask.h"
+#include "uarttask.h"
 
 #include <stdio.h>
 #include <FreeRTOS.h>
@@ -9,34 +11,79 @@
 
 #define NETWORKCONN_TASK_STACK_SIZE         (5 * 1024)
 #define NETWORKCONN_TASK_PRIORITY           (2)
-#define NETWORKSVC_TASK_STACK_SIZE          (64 * 1024)
+
+#define NETWORKSVC_TASK_STACK_SIZE          (8 * 1024)
 #define NETWORKSVC_TASK_PRIORITY            (3)
+
 #define FSINIT_TASK_STACK_SIZE              (5 * 1024)
 #define FSINIT_TASK_PRIORITY                (2)
 
+#define UART_TASK_STACK_SIZE                (5 * 1024)
+#define UART_TASK_PRIORITY                  (2)
+
+#define BASIC_TASK_STACK_SIZE               (5 * 1024)
+#define BASIC_TASK_PRIORITY                 (2)
+
 static TaskHandle_t fs_init_handle ;
 static TaskHandle_t netconn_handle ;
+static TaskHandle_t netsvc_handle ;
+static TaskHandle_t uart_handle ;
+static TaskHandle_t basic_handle ;
+
+static bool useUART = true ;
+static bool useWIFI = true ;
 
 void control_task(void *param)
 {
     printf("  Control task started\n") ;
 
     printf("  Starting file system init task\n") ;
-    xTaskCreate(filesystem_init_task, "FilesystemInit", 8 * 1024, NULL, 2, &fs_init_handle);
+    if (xTaskCreate(filesystem_init_task, "FilesystemInit", FSINIT_TASK_STACK_SIZE, NULL, FSINIT_TASK_PRIORITY, &fs_init_handle) != pdPASS) {
+        printf("    - could not start file system init task\n") ;
+        CY_ASSERT(false);
+    }
     while (!filesystem_init_done()) {
         vTaskDelay(500/portTICK_PERIOD_MS);
     }
 
-    printf("  Starting network stack task\n") ;
-    xTaskCreate(network_connect_task, "NetworkConnect", NETWORKCONN_TASK_STACK_SIZE, NULL, NETWORKCONN_TASK_PRIORITY, &netconn_handle);
-    while (!network_connect_done()) {
-        vTaskDelay(500/portTICK_PERIOD_MS);
+    printf("  Starting basic language processing task\n") ;
+    if (xTaskCreate(basic_task, "BasicTask", BASIC_TASK_STACK_SIZE, NULL, BASIC_TASK_PRIORITY, &basic_handle) != pdPASS)
+    {
+        printf("    - could not start basic language processint task\n") ;
+        CY_ASSERT(false);
+    }
+
+    if (useWIFI) {
+        printf("  Starting wifi access point task\n") ;
+        if (xTaskCreate(network_connect_task, "NetworkConnect", NETWORKCONN_TASK_STACK_SIZE, NULL, NETWORKCONN_TASK_PRIORITY, &netconn_handle) != pdPASS)
+        {
+            printf("    - could not start network access point task\n");
+        }
+        while (!network_connect_done()) {
+            // Wait for the access point to come up
+            vTaskDelay(500/portTICK_PERIOD_MS);
+        }
+
+        printf("  Starting telnet connection task\n");
+        if (xTaskCreate(network_service_task, "NetworkService", NETWORKCONN_TASK_STACK_SIZE, NULL, NETWORKCONN_TASK_PRIORITY, &netsvc_handle) != pdPASS)
+        {
+            printf("    - could not start telnet connection task\n") ;
+        }
+    }
+
+    if (useUART) {
+        printf("  Starting UART input task\n") ;
+        if (!xTaskCreate(uart_task, "UartTask", UART_TASK_STACK_SIZE, NULL, UART_TASK_PRIORITY, &uart_handle)) {
+            printf("    - could not start UART input task\n") ;
+        }
     }
 
     printf("\n\nBasic06 Ready\n") ;
 
-    xTaskCreate(network_service_task, "NetworkService", NETWORKCONN_TASK_STACK_SIZE, NULL, NETWORKCONN_TASK_PRIORITY, NULL);
     while (true) {
-        vTaskDelay(500/portTICK_PERIOD_MS);
+        //
+        // We just hang out and let the other tasks do their work
+        //
+        vTaskDelay(1000/portTICK_PERIOD_MS);
     }
 }

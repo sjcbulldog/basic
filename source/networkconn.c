@@ -53,8 +53,8 @@ static cy_rslt_t softap_start(void)
     {
         nw_ip_addr.ip.v4 = softap_ip_info.ip_address.ip.v4;
         cy_nw_ntoa(&nw_ip_addr, ip_addr_str);
-        printf("Connect TCP client device to the network: addr: %s SSID: %s Password:%s\n",
-                ip_addr_str, SOFTAP_SSID, SOFTAP_PASSWORD);
+        printf("\n\nConnect TCP client device to the network: addr: %s\n", ip_addr_str);
+        printf("SSID: %s Password:%s\n",SOFTAP_SSID, SOFTAP_PASSWORD);
         nw_ip_addr.ip.v4 = softap_ip_info.ip_address.ip.v4;
     }
 

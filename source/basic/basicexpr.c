@@ -476,7 +476,7 @@ static void reduce()
     push_operand(op1);
 }
 
-static basic_operand_t *parse_expr(const char *line, basic_err_t *err)
+static const char *parse_expr(const char *line, basic_operand_t **ret, basic_err_t *err)
 {
     basic_operand_t *operand1, *operand2, *op1, *op2 ;
     operator_table_t *o1, *o2 ;
@@ -494,7 +494,8 @@ static basic_operand_t *parse_expr(const char *line, basic_err_t *err)
     line = parse_operator(line, &o1, err) ;
     if (*err != BASIC_ERR_NONE) {
         *err = BASIC_ERR_NONE ;
-        return pop_operand() ;
+        *ret = pop_operand() ;
+        return line ;
     }
 
     op1 = createOperator(o1);
@@ -527,8 +528,8 @@ static basic_operand_t *parse_expr(const char *line, basic_err_t *err)
             }
 
             *err = BASIC_ERR_NONE ;
-            basic_operand_t *ret = pop_operand();
-            return ret ;
+            *ret = pop_operand();
+            return line ;
         }
 
         op2 = createOperator(o2);
@@ -554,9 +555,12 @@ static basic_operand_t *parse_expr(const char *line, basic_err_t *err)
 
 const char *basic_parse_expr(const char *line, uint32_t *index, basic_err_t *err)
 {
+    basic_operand_t *op ;
+
     operand_top = 0 ;
     operator_top = 0 ;
-    basic_operand_t *op = parse_expr(line, err);
+
+    line = parse_expr(line, &op, err);
     if (op == NULL)
         return NULL ;
 
