@@ -72,7 +72,12 @@ const char *basic_value_to_string(basic_value_t *value)
         ret = value->value.svalue_ ;
     }
     else {
-        sprintf(parsebuffer, "%f", value->value.nvalue_);
+        if ((value->value.nvalue_ - (int)value->value.nvalue_) < 1e-6) {
+            sprintf(parsebuffer, "%d", (int)value->value.nvalue_) ;
+        }
+        else {
+            sprintf(parsebuffer, "%f", value->value.nvalue_);
+        }
         ret = parsebuffer ;
     }
 
@@ -164,9 +169,9 @@ bool basic_set_var_value(uint32_t index, basic_value_t *value, basic_err_t *err)
 
             if (var->value_ != NULL) {
                 basic_destroy_value(var->value_) ;
-                var->value_ = value ;
-                return true ;
             }
+            var->value_ = value ;
+            return true ;
         }
     }
 
@@ -403,6 +408,8 @@ static bool basic_oper_to_string(basic_operand_t *oper, uint32_t str)
 
         case BASIC_OPERAND_TYPE_VAR:
             v = basic_get_var_name(oper->operand_.var_);
+            if (!str_add_str(str, v))
+                ret = false ;
 
             break ;
     }

@@ -51,6 +51,9 @@ static uint32_t lineToString(basic_line_t *line)
         case BTOKEN_IF:
             break ;
 
+        case BTOKEN_REM:
+            break; 
+
         case BTOKEN_LET:
             assert(line->tokens_[1] == BTOKEN_VAR);
             const char *varname = basic_get_var_name(getU32(line, 2)) ;
@@ -105,7 +108,7 @@ static uint32_t lineToString(basic_line_t *line)
                     if (index == line->count_)
                         break; 
 
-                    if (!str_add_str(",", 1)) {
+                    if (!str_add_str(str, ",")) {
                         str_destroy(str) ;
                         return STR_INVALID ;
                     }
@@ -198,7 +201,7 @@ basic_line_t *basic_cls(basic_line_t *line, basic_err_t *err, basic_out_fn_t out
 basic_line_t *basic_run(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     if (line->lineno_ != -1) {
-        *err = BASIC_NOT_ALLOWED ;
+        *err = BASIC_ERR_NOT_ALLOWED ;
         return NULL ;
     }
 
@@ -287,13 +290,11 @@ basic_line_t *basic_flist(basic_line_t *line, basic_err_t *err, basic_out_fn_t o
         src = 0 ;
         while (num[src] != '\0')
             outline[index++] = num[src++] ;
+       
+        outline[index] = '\n' ;
+        outline[index] = '\0' ;
 
-        while (index < sizeof(outline) - 2)
-            outline[index++] = ' ' ;
-        
-        outline[index] = '\n' ;      
-
-        (*outfn)(outline, sizeof(outline)) ;
+        (*outfn)(outline, strlen(outline));
     }
 
     (*outfn)("\n", 1);
@@ -320,6 +321,9 @@ basic_line_t *basic_print(basic_line_t *line, basic_err_t *err, basic_out_fn_t o
     int index = 1 ;
 
     while (index < line->count_) {
+        assert(line->tokens_[index] == BTOKEN_EXPR) ;
+        index++ ;
+
         uint32_t expr = getU32(line, index) ;
         index += 4 ;
         basic_value_t *value = basic_eval_expr(expr, err);
@@ -336,6 +340,12 @@ basic_line_t *basic_print(basic_line_t *line, basic_err_t *err, basic_out_fn_t o
         index++ ;
     }
 
+    (*outfn)("\n", 1) ;
+    return line->next_ ;
+}
+
+basic_line_t *basic_rem(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+{
     return line->next_ ;
 }
 
@@ -345,7 +355,7 @@ basic_line_t *basic_let(basic_line_t *line, basic_err_t *err, basic_out_fn_t out
     assert(line->count_ == 11);
     assert(line->tokens_[0] == BTOKEN_LET) ;
     assert(line->tokens_[1] == BTOKEN_VAR) ;
-    assert(line->tokens_[5] == BTOKEN_EXPR) ;
+    assert(line->tokens_[6] == BTOKEN_EXPR) ;
 
     uint32_t varindex = getU32(line, 2) ;
     uint32_t exprindex = getU32(line, 7) ;
@@ -454,7 +464,9 @@ basic_line_t *basic_save(basic_line_t *line, basic_err_t *err, basic_out_fn_t ou
 
 basic_line_t *basic_load(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
-    uint32_t expr = getU32(line, 1);
+    assert(line->tokens_[1] == BTOKEN_EXPR) ;
+
+    uint32_t expr = getU32(line, 2);
     basic_value_t *value = basic_eval_expr(expr, err) ;
     if (value == NULL)
         return NULL ;
@@ -505,6 +517,10 @@ static basic_line_t *exec_one_line(basic_line_t *line, basic_err_t *err, basic_o
 
         case BTOKEN_LET:
             next = basic_let(line, err, outfn) ;
+            break ;
+
+        case BTOKEN_REM:
+            next = basic_rem(line, err, outfn) ;
             break ;
 
         case BTOKEN_PRINT:

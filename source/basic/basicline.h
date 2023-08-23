@@ -28,7 +28,8 @@ typedef enum btokens {
     BTOKEN_PRINT = 18,
     BTOKEN_FLIST = 19,
 	BTOKEN_EXPR = 20,
-	BTOKEN_VAR = 21
+	BTOKEN_VAR = 21,
+    BTOKEN_REM = 22
 
 } btoken_t ;
 

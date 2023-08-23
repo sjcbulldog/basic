@@ -21,6 +21,7 @@ static token_table_t tokens[] =
     { BTOKEN_LIST, "list"},
     { BTOKEN_CLEAR, "clear"},
     { BTOKEN_LET, "let"},
+    { BTOKEN_REM, "rem"},
     { BTOKEN_IF, "if"},
     { BTOKEN_THEN, "then"},
     { BTOKEN_ELSE, "else"},
@@ -534,6 +535,8 @@ static basic_line_t *tokenize(const char *line, basic_err_t *err)
             basic_destroy_line(ret) ;
             ret = NULL ;
         }
+    } else if (token == BTOKEN_REM) {
+
     } else if (token == BTOKEN_LET) {
         if (!parse_let(ret, line, err)) {
             basic_destroy_line(ret) ;
@@ -583,8 +586,12 @@ bool basic_line_proc(const char *line, basic_out_fn_t outfn)
     ret = tokenize(line, &code) ;
 
     if (code != BASIC_ERR_NONE) {
+        sprintf(msg, "Line: '%s'\n", line) ;
+        (*outfn)(msg, strlen(msg)) ;
+
         sprintf(msg, "Error code %d\n", code) ;
-        network_svc_send_data(msg, strlen(msg)) ;
+        (*outfn)(msg, strlen(msg)) ;
+
         return false ;
     }
 
@@ -618,20 +625,28 @@ bool basic_proc_load(const char *filename, basic_err_t *err, basic_out_fn_t outf
         if (f_eof(&fp))
             break ;
 
-        res = f_read(&fp, linebuf + index, sizeof(linebuf) - index, &got) ;
+        res = f_read(&fp, &linebuf[index], sizeof(linebuf) - index - 1, &got) ;
         if (res != FR_OK) {
             basic_clear(NULL, err, outfn);
             *err = BASIC_ERR_IO_ERROR ;
             return false ;
         }
+        linebuf[index + got] = '\0' ;
 
         // Now process the buffer as a set of basic lines
         index = 0 ;
         while (index < got) {
             if (linebuf[index] == '\n') {
                 linebuf[index] = '\0' ;
-                basic_line_proc(linebuf, outfn) ;
-                memcpy(linebuf, linebuf + index + 1, got - index);
+                printf("\nparsing: '%s'\n", linebuf);
+                if (!basic_line_proc(linebuf, outfn)) {
+                    basic_clear(NULL, err, outfn) ;
+                    return false ;
+                }
+                int copy = got - index ;
+                memcpy(linebuf, &linebuf[index + 1], got - index);
+                got -= copy ;
+                printf("remaining: '%s'\n", linebuf);
                 index = 0 ;
             }
             else {
