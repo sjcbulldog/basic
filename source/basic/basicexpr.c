@@ -99,6 +99,8 @@ bool basic_get_var(const char *name, uint32_t *index, basic_err_t *err)
     newvar->index_ = next_var_index++ ;
     newvar->next_ = vars ;
     vars = newvar ;
+    
+    *index = newvar->index_ ;
 
     return true ;
 }

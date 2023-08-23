@@ -16,6 +16,7 @@ static char filename[64] ;
 static uint32_t lineToString(basic_line_t *line)
 {
     uint32_t str ;
+    uint32_t item ;
 
     str = str_create() ;
     if (!str_add_int(str, line->lineno_)) {
@@ -33,6 +34,11 @@ static uint32_t lineToString(basic_line_t *line)
         return STR_INVALID ;
     }
 
+    if (!str_add_str(str, " ")) {
+        str_destroy(str) ;                
+        return STR_INVALID ;
+    }
+
     switch(line->tokens_[0])
     {
         case BTOKEN_FOR:
@@ -47,7 +53,8 @@ static uint32_t lineToString(basic_line_t *line)
 
         case BTOKEN_LET:
             assert(line->tokens_[1] == BTOKEN_VAR);
-            if (!str_add_str(str, basic_get_var_name(getU32(line, 2)))) {
+            const char *varname = basic_get_var_name(getU32(line, 2)) ;
+            if (!str_add_str(str, varname)) {
                 str_destroy(str) ;
                 return STR_INVALID ;
             }
@@ -85,7 +92,8 @@ static uint32_t lineToString(basic_line_t *line)
                     }
                     assert(line->tokens_[index] == BTOKEN_EXPR);
                     index++ ;
-                    uint32_t strh = basic_expr_to_string(getU32(line, index)) ;
+                    item = getU32(line, index) ;
+                    uint32_t strh = basic_expr_to_string(item);
                     if (!str_add_handle(str, strh)) {
                         str_destroy(strh) ;
                         str_destroy(str) ;
@@ -93,6 +101,14 @@ static uint32_t lineToString(basic_line_t *line)
                     }
                     str_destroy(strh);
                     index += 4 ;
+
+                    if (index == line->count_)
+                        break; 
+
+                    if (!str_add_str(",", 1)) {
+                        str_destroy(str) ;
+                        return STR_INVALID ;
+                    }
                 }
             }
             break ;
@@ -181,7 +197,12 @@ basic_line_t *basic_cls(basic_line_t *line, basic_err_t *err, basic_out_fn_t out
 
 basic_line_t *basic_run(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
-    *err = BASIC_ERR_NONE ;
+    if (line->lineno_ != -1) {
+        *err = BASIC_NOT_ALLOWED ;
+        return NULL ;
+    }
+
+    *err = basic_exec_line(program, outfn) ;
     return NULL ;
 }
 

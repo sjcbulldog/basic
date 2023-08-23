@@ -54,7 +54,7 @@ void control_task(void *param)
     }
 
     if (useWIFI) {
-        printf("  Starting wifi access point task\n") ;
+        printf("  Starting wifi access point task\n\n\n") ;
         if (xTaskCreate(network_connect_task, "NetworkConnect", NETWORKCONN_TASK_STACK_SIZE, NULL, NETWORKCONN_TASK_PRIORITY, &netconn_handle) != pdPASS)
         {
             printf("    - could not start network access point task\n");

@@ -86,7 +86,7 @@ void basic_destroy_line(basic_line_t *line)
     			basic_destroy_var(var);
     		}
     		else if (line->tokens_[index] == BTOKEN_EXPR) {
-    			uint32_t var = getU32(line + 1, index);
+    			uint32_t var = getU32(line, index + 1);
     			index += 5 ;
     			basic_destroy_expr(var);
     		}
@@ -195,6 +195,11 @@ static const char *parse_varname(const char *line, uint32_t *varindex, basic_err
     }
 
     keyword[stored] = '\0' ;
+
+    if (strlen(keyword) == 0) {
+        *err = BASIC_ERR_EXPECTED_VAR ;
+        return NULL ;
+    }
 
     if (!basic_get_var(keyword, varindex, err)) {
         return NULL ;
@@ -329,6 +334,13 @@ static bool parse_gotogosub(basic_line_t *bline, const char *line, basic_err_t *
 static bool parse_print(basic_line_t *bline, const char *line, basic_err_t *err)
 {
     uint32_t exprindex ;
+
+    line = skipSpaces(line) ;
+    if (*line == '\0') {
+        *err = BASIC_ERR_NONE ;
+
+        return true ;
+    }
 
     while (1) {
         line = basic_parse_expr(line, &exprindex, err) ;
