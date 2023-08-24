@@ -29,7 +29,11 @@ typedef enum btokens {
     BTOKEN_FLIST = 19,
 	BTOKEN_EXPR = 20,
 	BTOKEN_VAR = 21,
-    BTOKEN_REM = 22
+    BTOKEN_REM = 22,
+    BTOKEN_DIM = 23,
+    BTOKEN_DEF = 24,
+    BTOKEN_INPUT = 25,
+    BTOKEN_ON = 26
 
 } btoken_t ;
 

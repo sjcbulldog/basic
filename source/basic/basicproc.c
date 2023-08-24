@@ -85,7 +85,7 @@ void basic_destroy_line(basic_line_t *line)
     	int index = 1 ;
     	while (index < line->count_) {
     		if (line->tokens_[index] == BTOKEN_VAR) {
-    			uint32_t var = getU32(line + 1, index);
+    			uint32_t var = getU32(line, index + 1);
     			index += 5 ;
     			basic_destroy_var(var);
     		}
@@ -105,6 +105,13 @@ void basic_destroy_line(basic_line_t *line)
         free(line->extra_);
     }
 
+    basic_line_t *child = line->children_ ;
+    while (child) {
+        basic_line_t *next = child->next_ ;
+        basic_destroy_line(child) ;
+        child = next ;
+    }
+    
     free(line) ;
 }
 
@@ -500,6 +507,9 @@ static const char *parse_loadsave(basic_line_t *bline, const char *line, basic_e
 static const char *tokenize_one(const char *line, basic_line_t **bline, basic_err_t *err)
 {
     basic_line_t *ret ;
+    uint8_t token ;  
+
+    line = skipSpaces(line) ;
 
     ret = create_line() ;
     if (ret == NULL) {
@@ -512,10 +522,25 @@ static const char *tokenize_one(const char *line, basic_line_t **bline, basic_er
     //
     // Now, look for a token to start the line
     //
+    const char *save = line ;
     line = parse_keyword(line, &token, err) ;
     if (line == NULL) {
-        basic_destroy_line(ret) ;
-        return NULL ;
+        line = save ;
+        int errsave = *err ;
+
+        //
+        // Ok, it is not a basic token, but it might be a variables
+        //
+        line = parse_let(ret, line, err) ;
+        if (line == NULL) {
+            *err = errsave ;
+            basic_destroy_line(ret) ;
+            *bline = NULL ;
+            return NULL ;
+        }
+        else {
+            return line ;
+        }
     }
 
     add_token(ret, token) ;
@@ -596,8 +621,8 @@ static const char *tokenize_one(const char *line, basic_line_t **bline, basic_er
 
 static basic_line_t *tokenize(const char *line, basic_err_t *err)
 {
-    basic_line_t *ret, *last = NULL ;
-    uint8_t token ;  
+    basic_line_t *ret, *child, *last = NULL ;
+    bool first = true ;
     int lineno = -1 ;
 
     // Skip leading spaces
@@ -616,7 +641,39 @@ static basic_line_t *tokenize(const char *line, basic_err_t *err)
     }
 
     while (true) {
-        ret = tokenize_one(line, )
+        if (first) {
+            line = tokenize_one(line, &ret, err) ;
+            if (line == NULL)
+                return NULL ;
+
+            ret->lineno_ = lineno ;
+            first = false ;
+        }
+        else {
+            line = tokenize_one(line, &child, err) ;
+            if (line == NULL)
+                return NULL ;
+
+            if (last == NULL) {
+                ret->children_ = child ;
+            }
+            else {
+                last->next_ = child ;
+            }
+
+            last = child ;
+        }
+
+        line = skipSpaces(line) ;
+        if (*line == '\0')
+            break ;
+
+        if (*line != ':') {
+            *err = BASIC_ERR_EXTRA_CHARS ;
+            return NULL ;
+        }
+
+        line++ ;
     }
 
     return ret ;

@@ -13,30 +13,75 @@ static basic_line_t *program = NULL ;
 static const char *clearscreen = "\x1b[2J\x1b[;H";
 static char filename[64] ;
 
-static uint32_t lineToString(basic_line_t *line)
+static bool letToString(basic_line_t *line, uint32_t str)
 {
-    uint32_t str ;
-    uint32_t item ;
-
-    str = str_create() ;
-    if (!str_add_int(str, line->lineno_)) {
-        str_destroy(str) ;
-        return STR_INVALID ;
+    assert(line->tokens_[1] == BTOKEN_VAR);
+    const char *varname = basic_get_var_name(getU32(line, 2)) ;
+    if (!str_add_str(str, varname)) {
+        return false ;
     }
 
-    if (!str_add_str(str, " ")) {
-        str_destroy(str) ;
-        return STR_INVALID ;        
+    if (!str_add_str(str, "=")) {
+        return false ;
     }
 
+    assert(line->tokens_[6] == BTOKEN_EXPR);
+    uint32_t strh = basic_expr_to_string(getU32(line, 7)) ;
+    if (strh == STR_INVALID) 
+    {
+        return false ;
+    }
+    if (!str_add_handle(str, strh)) {
+        str_destroy(strh);
+        return false ;
+    }
+    str_destroy(strh);
+
+    return true ;
+}
+
+static bool printToString(basic_line_t *line, uint32_t str)
+{
+    int index = 1 ;
+    while (index < line->count_) 
+    {
+        if (index != 1) {
+            if (!str_add_str(str, ",")) {
+                str_destroy(str) ;                            
+                return STR_INVALID ;
+            }
+        }
+        assert(line->tokens_[index] == BTOKEN_EXPR);
+        index++ ;
+        uint32_t strh = basic_expr_to_string(getU32(line, index));
+        if (!str_add_handle(str, strh)) {
+            str_destroy(strh) ;
+            str_destroy(str) ;
+            return STR_INVALID ;
+        }
+        str_destroy(strh);
+        index += 4 ;
+
+        if (index == line->count_)
+            break; 
+
+        if (!str_add_str(str, ",")) {
+            str_destroy(str) ;
+            return STR_INVALID ;
+        }
+    }
+
+    return true ;
+}
+
+static bool oneLineToString(basic_line_t *line, uint32_t str)
+{
     if (!str_add_str(str, basic_token_to_str(line->tokens_[0]))) {
-        str_destroy(str) ;
-        return STR_INVALID ;
+        return false ;
     }
 
     if (!str_add_str(str, " ")) {
-        str_destroy(str) ;                
-        return STR_INVALID ;
+        return false ;
     }
 
     switch(line->tokens_[0])
@@ -54,66 +99,17 @@ static uint32_t lineToString(basic_line_t *line)
         case BTOKEN_REM:
             break; 
 
+        case BTOKEN_DIM:
+            break ;
+
         case BTOKEN_LET:
-            assert(line->tokens_[1] == BTOKEN_VAR);
-            const char *varname = basic_get_var_name(getU32(line, 2)) ;
-            if (!str_add_str(str, varname)) {
-                str_destroy(str) ;
-                return STR_INVALID ;
-            }
-
-            if (!str_add_str(str, "=")) {
-                str_destroy(str) ;                
-                return STR_INVALID ;
-            }
-
-            assert(line->tokens_[6] == BTOKEN_EXPR);
-            uint32_t strh = basic_expr_to_string(getU32(line, 7)) ;
-            if (strh == STR_INVALID) {
-
-                str_destroy(str);
-                return STR_INVALID ;
-            }
-            if (!str_add_handle(str, strh)) {
-                str_destroy(strh);
-                str_destroy(str) ;                
-                return STR_INVALID ;
-            }
-            str_destroy(strh);
+            if (!letToString(line, str))
+                return false ;
             break ;
 
         case BTOKEN_PRINT:
-            {
-                int index = 1 ;
-                while (index < line->count_) 
-                {
-                    if (index != 1) {
-                        if (!str_add_str(str, ",")) {
-                            str_destroy(str) ;                            
-                            return STR_INVALID ;
-                        }
-                    }
-                    assert(line->tokens_[index] == BTOKEN_EXPR);
-                    index++ ;
-                    item = getU32(line, index) ;
-                    uint32_t strh = basic_expr_to_string(item);
-                    if (!str_add_handle(str, strh)) {
-                        str_destroy(strh) ;
-                        str_destroy(str) ;
-                        return STR_INVALID ;
-                    }
-                    str_destroy(strh);
-                    index += 4 ;
-
-                    if (index == line->count_)
-                        break; 
-
-                    if (!str_add_str(str, ",")) {
-                        str_destroy(str) ;
-                        return STR_INVALID ;
-                    }
-                }
-            }
+            if (!printToString(line, str))
+                return false ;
             break ;
 
         case BTOKEN_SAVE:
@@ -122,6 +118,45 @@ static uint32_t lineToString(basic_line_t *line)
 
         default:    // No additional args
             break ;
+    }
+
+    return str ;
+}
+
+static uint32_t lineToString(basic_line_t *line)
+{
+    uint32_t str ;
+
+    str = str_create() ;
+    if (!str_add_int(str, line->lineno_)) {
+        str_destroy(str) ;
+        return STR_INVALID ;
+    }
+
+    if (!str_add_str(str, " ")) {
+        str_destroy(str) ;
+        return STR_INVALID ;        
+    }
+
+    if (!oneLineToString(line, str)) {
+        str_destroy(str) ;
+        return STR_INVALID ;
+    }
+
+    basic_line_t *child = line->children_ ;
+
+    while (child) {
+        if (!str_add_str(str, ":")) {
+            str_destroy(str) ;
+            return STR_INVALID ;
+        }
+
+        if (!oneLineToString(child, str)) {
+            str_destroy(str) ;
+            return STR_INVALID ;
+        }
+
+        child = child->next_ ;
     }
 
     return str ;
