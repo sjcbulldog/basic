@@ -1,0 +1,41 @@
+        {
+            "name": "Attach PSoC6 CM4 (KitProg3_MiniProg4)",
+            "type": "cortex-debug",
+            "request": "attach",
+            "cwd": "${workspaceFolder}",
+            "executable": "./build/APP_CY8CPROTO-062-4343W/Debug/mtb-example-wifi-tcp-client.elf",
+            "servertype": "openocd",
+            "serverArgs": [ "-d3"],
+            "searchDir": [
+                "${workspaceFolder}",
+                "${config:modustoolbox.toolsPath}/openocd/scripts/"
+            ],
+            "openOCDPreConfigLaunchCommands": [
+                "set ENABLE_ACQUIRE 0"
+            ],
+            "configFiles": [
+                "openocd.tcl"
+            ],
+            "overrideAttachCommands": [
+                "set mem inaccessible-by-default off",
+                "-enable-pretty-printing",
+                "set remotetimeout 15",
+                "info threads"
+            ],
+            "numberOfProcessors": 2,
+            "targetProcessor": 1,  // Set to 0 for the CM0+, set to 1 for the CM4
+            "overrideRestartCommands": [
+                "starti"
+            ],
+            "postRestartSessionCommands": [
+            ],
+            // svdFile is optional, it can be very large.
+            "svdFile": "../mtb_shared/mtb-pdl-cat1/release-v3.4.0/devices/COMPONENT_CAT1A/svd/psoc6_02.svd",
+            "breakAfterReset": true,
+            "runToEntryPoint": "main",    // Specifies application entry point name for restart/reset
+            "showDevDebugOutput": "none",
+            "presentation": {
+                "hidden": false,
+                "group": "CM4"
+            }
+        },

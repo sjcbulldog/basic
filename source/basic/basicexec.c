@@ -11,7 +11,23 @@
 
 static basic_line_t *program = NULL ;
 static const char *clearscreen = "\x1b[2J\x1b[;H";
+static const char *spaces = "        " ;
+static int space_count = 8 ;
+
 static char filename[64] ;
+
+static void putSpaces(basic_out_fn_t outfn, int count)
+{
+    while (count > 0) {
+        int howmany = count ;
+        if (howmany > space_count) {
+            howmany = space_count ;
+        }
+
+        (*outfn)(spaces, howmany) ;
+        count -= howmany ;
+    }
+}
 
 static bool letToString(basic_line_t *line, uint32_t str)
 {
@@ -45,14 +61,9 @@ static bool printToString(basic_line_t *line, uint32_t str)
     int index = 1 ;
     while (index < line->count_) 
     {
-        if (index != 1) {
-            if (!str_add_str(str, ",")) {
-                str_destroy(str) ;                            
-                return STR_INVALID ;
-            }
-        }
         assert(line->tokens_[index] == BTOKEN_EXPR);
         index++ ;
+
         uint32_t strh = basic_expr_to_string(getU32(line, index));
         if (!str_add_handle(str, strh)) {
             str_destroy(strh) ;
@@ -65,13 +76,32 @@ static bool printToString(basic_line_t *line, uint32_t str)
         if (index == line->count_)
             break; 
 
-        if (!str_add_str(str, ",")) {
+        if (line->tokens_[index] == BTOKEN_COMMA) {
+            if (!str_add_str(str, ",")) {
+                str_destroy(str) ;
+                return STR_INVALID ;
+            }
+            index++ ;
+        }
+        else if (line->tokens_[index] == BTOKEN_SEMICOLON) {
+            if (!str_add_str(str, ";")) {
+                str_destroy(str) ;
+                return STR_INVALID ;
+            }
+            index++ ;
+        }
+        else {
             str_destroy(str) ;
-            return STR_INVALID ;
+            return STR_INVALID ;            
         }
     }
 
     return true ;
+}
+
+static bool remToString(basic_line_t *line, uint32_t str)
+{
+    return str_add_str(str, line->extra_) ;
 }
 
 static bool oneLineToString(basic_line_t *line, uint32_t str)
@@ -97,6 +127,8 @@ static bool oneLineToString(basic_line_t *line, uint32_t str)
             break ;
 
         case BTOKEN_REM:
+            if (!remToString(line, str))
+                return false ;
             break; 
 
         case BTOKEN_DIM:
@@ -120,7 +152,7 @@ static bool oneLineToString(basic_line_t *line, uint32_t str)
             break ;
     }
 
-    return str ;
+    return true ;
 }
 
 static uint32_t lineToString(basic_line_t *line)
@@ -213,7 +245,7 @@ void basic_store_line(basic_line_t *line)
     }
 }
 
-basic_line_t *basic_cls(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+void basic_cls(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     cy_rslt_t res ;
 
@@ -223,30 +255,34 @@ basic_line_t *basic_cls(basic_line_t *line, basic_err_t *err, basic_out_fn_t out
     res = (*outfn)(clearscreen, len) ;
     if (res != CY_RSLT_SUCCESS) {
         *err = BASIC_ERR_NETWORK_ERROR ;
-        return NULL ;
     }
-
-    if (line == NULL) {
-        return NULL ;
-    }
-
-    return line->next_ ;
 }
 
-basic_line_t *basic_run(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+
+void basic_run(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     if (line->lineno_ != -1) {
         *err = BASIC_ERR_NOT_ALLOWED ;
-        return NULL ;
+        return ;    
     }
 
-    *err = basic_exec_line(program, outfn) ;
-    return NULL ;
+    exec_context_t context ;
+    context.line_ = program ;
+    context.child_ = NULL ;
+
+    *err = basic_exec_line(&context, outfn) ;
 }
 
-basic_line_t *basic_list(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+void basic_list(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     static const char *empty_message = "No Program Stored\n" ;
+
+    *err = BASIC_ERR_NONE ;
+
+    if (line->lineno_ != -1) {
+        *err = BASIC_ERR_NOT_ALLOWED ;
+        return ;
+    }
 
     if (program == NULL) {
         (*outfn)(empty_message, strlen(empty_message));
@@ -258,13 +294,13 @@ basic_line_t *basic_list(basic_line_t *line, basic_err_t *err, basic_out_fn_t ou
 
             if (str == STR_INVALID) {
                 *err = BASIC_ERR_OUT_OF_MEMORY ;
-                return NULL ;
+                return ;
             }
 
             if (!str_add_str(str, "\n")) {
                 str_destroy(str);
                 *err = BASIC_ERR_OUT_OF_MEMORY ;
-                return NULL ;                
+                return ;
             }
 
             const char *strval = str_value(str) ;
@@ -274,24 +310,21 @@ basic_line_t *basic_list(basic_line_t *line, basic_err_t *err, basic_out_fn_t ou
             pgm = pgm->next_ ;
         }
     }
-
-    if (line == NULL)
-        return NULL ;
-
-    return line->next_ ;
 }
 
-basic_line_t *basic_flist(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+void basic_flist(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     DIR dp ;
     FILINFO info ;
     const int tabno = 16 ;
     char outline[64], num[12] ;
 
+    *err = BASIC_ERR_NONE ;    
+
     FRESULT res = f_opendir (&dp, "/") ;
     if (res != FR_OK) {
         *err = BASIC_ERR_SDCARD_ERROR ;
-        return NULL ;
+        return ;
     }
 
     strcpy(outline, "FileName        Size\n");
@@ -326,7 +359,7 @@ basic_line_t *basic_flist(basic_line_t *line, basic_err_t *err, basic_out_fn_t o
         while (num[src] != '\0')
             outline[index++] = num[src++] ;
        
-        outline[index] = '\n' ;
+        outline[index++] = '\n' ;
         outline[index] = '\0' ;
 
         (*outfn)(outline, strlen(outline));
@@ -334,12 +367,18 @@ basic_line_t *basic_flist(basic_line_t *line, basic_err_t *err, basic_out_fn_t o
 
     (*outfn)("\n", 1);
     f_closedir(&dp);
-    return line->next_ ;
 }
 
-basic_line_t *basic_clear(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+void basic_clear(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     basic_line_t *pgm = program ;
+
+    *err = BASIC_ERR_NONE ;    
+
+    if (line->lineno_ != -1) {
+        *err = BASIC_ERR_NOT_ALLOWED ;
+        return ;
+    }    
 
     while (pgm) {
         basic_line_t *next = pgm->next_ ;
@@ -348,12 +387,14 @@ basic_line_t *basic_clear(basic_line_t *line, basic_err_t *err, basic_out_fn_t o
     }
 
     program = NULL ;
-    return NULL ;
 }
 
-basic_line_t *basic_print(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+void basic_print(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     int index = 1 ;
+    int len = 0 ;
+
+    *err = BASIC_ERR_NONE ;    
 
     while (index < line->count_) {
         assert(line->tokens_[index] == BTOKEN_EXPR) ;
@@ -363,28 +404,37 @@ basic_line_t *basic_print(basic_line_t *line, basic_err_t *err, basic_out_fn_t o
         index += 4 ;
         basic_value_t *value = basic_eval_expr(expr, err);
         if (value == NULL)
-            return NULL ;
+            return ;
 
         const char *str = basic_value_to_string(value) ;
+        len += strlen(str) ;
         (*outfn)(str, strlen(str)) ;
 
         if(index == line->count_)
             break ;
 
-        assert(line->tokens_[index] == BTOKEN_COMMA);
+        assert(line->tokens_[index] == BTOKEN_COMMA || line->tokens_[index] == BTOKEN_SEMICOLON) ;
+
+        if (line->tokens_[index] == BTOKEN_COMMA) {
+            int count = 8 - (len % 8) ;
+            putSpaces(outfn, count) ;
+        }
+
         index++ ;
     }
 
-    (*outfn)("\n", 1) ;
-    return line->next_ ;
+    if (line->tokens_[line->count_ - 1] != BTOKEN_SEMICOLON)
+        (*outfn)("\n", 1) ;
+
+    return ;
 }
 
-basic_line_t *basic_rem(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+void basic_rem(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
-    return line->next_ ;
+    *err = BASIC_ERR_NONE ;
 }
 
-basic_line_t *basic_let(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+void basic_let(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     // We expect a token pattern of BTOKEN_LET, VAR, EXPR
     assert(line->count_ == 11);
@@ -392,68 +442,85 @@ basic_line_t *basic_let(basic_line_t *line, basic_err_t *err, basic_out_fn_t out
     assert(line->tokens_[1] == BTOKEN_VAR) ;
     assert(line->tokens_[6] == BTOKEN_EXPR) ;
 
+    *err = BASIC_ERR_NONE ;    
+
     uint32_t varindex = getU32(line, 2) ;
     uint32_t exprindex = getU32(line, 7) ;
 
     basic_value_t *value = basic_eval_expr(exprindex, err) ;
     if (value == NULL)
-        return NULL ;
+        return ;
 
     if (!basic_set_var_value(varindex, value, err))
-        return NULL ;
+        return ;
 
-    return line->next_ ;
+    return ;
 }
 
-basic_line_t *basic_if(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+void basic_if(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, basic_out_fn_t outfn)
 {
-    return NULL ;
+    *err = BASIC_ERR_NONE ;    
+    return ;
 }
 
-basic_line_t *basic_then(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+void basic_then(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, basic_out_fn_t outfn)
 {
-    return NULL ;
+    *err = BASIC_ERR_NONE ;    
+    return ;
 }
 
-basic_line_t *basic_else(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+void basic_else(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, basic_out_fn_t outfn)
 {
-    return NULL ;
+    *err = BASIC_ERR_NONE ;    
+    return ;
 }
 
-basic_line_t *basic_for(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+void basic_for(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
-    return NULL ;
+    *err = BASIC_ERR_NONE ;    
+    return ;
 }
 
-basic_line_t *basic_to(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+void basic_to(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
-    return NULL ;
+    *err = BASIC_ERR_NONE ;    
+    return  ;
 }
 
-basic_line_t *basic_goto(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+void basic_goto(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, basic_out_fn_t outfn)
 {
-    return NULL ;
+    *err = BASIC_ERR_NONE ;    
+    return ;
 }
 
-basic_line_t *basic_gosub(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+void basic_gosub(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, basic_out_fn_t outfn)
 {
-    return NULL ;
+    *err = BASIC_ERR_NONE ;    
+    return ;
 }
 
-basic_line_t *basic_save(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+void basic_save(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     FIL fp ;
     FRESULT res ;
     UINT written ;
 
-    uint32_t expr = getU32(line, 1);
+    *err = BASIC_ERR_NONE ;
+    assert(line->tokens_[1] == BTOKEN_EXPR) ;
+
+    if (line->lineno_ != -1) {
+        *err = BASIC_ERR_NOT_ALLOWED ;
+        return ;
+    }    
+
+    uint32_t expr = getU32(line, 2);
     basic_value_t *value = basic_eval_expr(expr, err) ;
     if (value == NULL)
-        return NULL ;
+        return ;
 
     if (value->type_ != BASIC_VALUE_TYPE_STRING) {
         *err = BASIC_ERR_TYPE_MISMATCH ;
-        return NULL ;
+        return ;
     }
 
     strcpy(filename, "/") ;
@@ -462,7 +529,7 @@ basic_line_t *basic_save(basic_line_t *line, basic_err_t *err, basic_out_fn_t ou
     res = f_open(&fp, filename, FA_CREATE_ALWAYS | FA_WRITE);
     if (res != FR_OK) {
         *err = BASIC_ERR_COUNT_NOT_OPEN ;
-        return false ;
+        return ;
     }
 
     basic_line_t *pgm = program ;
@@ -472,14 +539,16 @@ basic_line_t *basic_save(basic_line_t *line, basic_err_t *err, basic_out_fn_t ou
         if (str == STR_INVALID) {
             f_close(&fp) ;
             *err = BASIC_ERR_OUT_OF_MEMORY ;
-            return NULL ;
+            return ;
         }
+
+        pgm = pgm->next_ ;
 
         if (!str_add_str(str, "\n")) {
             f_close(&fp) ;
             str_destroy(str);
             *err = BASIC_ERR_OUT_OF_MEMORY ;
-            return NULL ;                
+            return ;                
         }        
 
         const char *strval = str_value(str) ;
@@ -489,137 +558,186 @@ basic_line_t *basic_save(basic_line_t *line, basic_err_t *err, basic_out_fn_t ou
         if (res != FR_OK || towrite != written) {
             f_close(&fp) ;
             *err = BASIC_ERR_IO_ERROR ;
-            return NULL ;
+            return ;
         }
     }
     f_close(&fp) ;
-
-    return line->next_ ;
 }
 
-basic_line_t *basic_load(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+void basic_load(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     assert(line->tokens_[1] == BTOKEN_EXPR) ;
+
+    *err = BASIC_ERR_NONE ;
+
+    if (line->lineno_ != -1) {
+        *err = BASIC_ERR_NOT_ALLOWED ;
+        return ;
+    }
 
     uint32_t expr = getU32(line, 2);
     basic_value_t *value = basic_eval_expr(expr, err) ;
     if (value == NULL)
-        return NULL ;
+        return ;
 
     if (value->type_ != BASIC_VALUE_TYPE_STRING) {
         *err = BASIC_ERR_TYPE_MISMATCH ;
-        return NULL ;
+        return ;
     }
 
     strcpy(filename, "/") ;
     strcat(filename, value->value.svalue_);
 
-    if (!basic_proc_load(filename, err, outfn))
-        return NULL ;
-    
-    
-    return NULL ;
+    basic_proc_load(filename, err, outfn) ;
 }
 
-static basic_line_t *exec_one_line(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+static void exec_one_statement(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, basic_out_fn_t outfn)
 {
-    basic_line_t *next = line->next_ ;
-    assert(line != NULL) ;
-    assert(line->tokens_ != NULL) ;
-
-    *err = BASIC_ERR_NONE;
-
     switch(line->tokens_[0]) {
         case BTOKEN_CLS:
-            next = basic_cls(line, err, outfn) ;
+            basic_cls(line, err, outfn) ;
             break ;
 
         case BTOKEN_RUN:
-            next = basic_run(line, err, outfn) ;
+            basic_run(line, err, outfn) ;
             break ;
 
         case BTOKEN_LIST:
-            next = basic_list(line, err, outfn) ;
+            basic_list(line, err, outfn) ;
             break ;
 
         case BTOKEN_CLEAR:
-            next = basic_clear(line, err, outfn) ;
+            basic_clear(line, err, outfn) ;
             break ;
 
         case BTOKEN_FLIST:
-            next = basic_flist(line, err, outfn) ;
+            basic_flist(line, err, outfn) ;
             break ;            
 
         case BTOKEN_LET:
-            next = basic_let(line, err, outfn) ;
+            basic_let(line, err, outfn) ;
             break ;
 
         case BTOKEN_REM:
-            next = basic_rem(line, err, outfn) ;
+            basic_rem(line, err, outfn) ;
             break ;
 
         case BTOKEN_PRINT:
-            next = basic_print(line, err, outfn) ;
+            basic_print(line, err, outfn) ;
             break;
 
         case BTOKEN_IF:
-            next = basic_if(line, err, outfn) ;
+            basic_if(line, nextline, err, outfn) ;
             break ;
 
         case BTOKEN_THEN:
-            next = basic_then(line, err, outfn) ;
+            basic_then(line, nextline, err, outfn) ;
             break ;
 
         case BTOKEN_ELSE:
-            next = basic_else(line, err, outfn) ;
+            basic_else(line, nextline, err, outfn) ;
             break ;
 
         case BTOKEN_FOR:
-            next = basic_for(line, err, outfn) ;
+            basic_for(line, err, outfn) ;
             break ;
 
         case BTOKEN_TO:
-            next = basic_to(line, err, outfn) ;
+            basic_to(line, err, outfn) ;
             break ;
 
         case BTOKEN_GOTO:
-            next = basic_goto(line, err, outfn) ;
+            basic_goto(line, nextline, err, outfn) ;
             break ;
 
         case BTOKEN_GOSUB:
-            next = basic_gosub(line, err, outfn) ;
+            basic_gosub(line, nextline, err, outfn) ;
             break ;
 
         case BTOKEN_SAVE:
-            next = basic_save(line, err, outfn) ;
+            basic_save(line, err, outfn) ;
             break ;
 
         case BTOKEN_LOAD:
-            next = basic_load(line, err, outfn) ;
+            basic_load(line, err, outfn) ;
             break ;        
 
         default:
             *err = BASIC_ERR_UNKNOWN_KEYWORD ;
-            next = NULL ;
+            break ;
     }
-
-    return next ;
 }
 
-int basic_exec_line(basic_line_t *line, basic_out_fn_t outfn)
+int basic_exec_line(exec_context_t *context, basic_out_fn_t outfn)
 {
+    exec_context_t nextone ;
     basic_err_t code = BASIC_ERR_NONE ;
+    basic_line_t *toexec ;
 
-    while (1) {
-        line = exec_one_line(line, &code, outfn) ;
+    while (context->line_ != NULL) {
+        nextone.line_ = NULL ;
+        nextone.child_ = NULL ;
+
+        if (context->child_ != NULL)
+            toexec = context->child_ ;
+        else
+            toexec = context->line_ ;
+
+        //
+        // Execute one statement exactly.  If the statement wants to redirect
+        // control flow, it must return a value in the nextone context.
+        //
+        exec_one_statement(toexec, &nextone, &code, outfn) ;
 
         // Error executing the last line
         if (code != BASIC_ERR_NONE)
             break ;
 
-        // We are done with the lines
-        if (line == NULL)
-            break ;
+        if (nextone.line_ != NULL) {
+            *context = nextone ;
+        }
+        else {
+            if (context->child_ != NULL) {
+                //
+                // We are executing a child statement
+                //
+                if (context->child_->next_ == NULL) 
+                {
+                    //
+                    // This is the last child in the list of children, move to the
+                    // next parent.
+                    //
+                    context->line_ = context->line_->next_ ;
+                    context->child_ = NULL ;
+                }
+                else
+                {
+                    //
+                    // There are further children
+                    //
+                    context->child_ = context->child_->next_ ;
+                }
+            }
+            else {
+                //
+                // We are executing a parent statement
+                //
+                if (context->line_->children_ == NULL) {
+                    //
+                    // There are not children, go to the next parent
+                    //
+                    context->line_ = context->line_->next_ ;
+                    context->child_ = NULL ;
+                }
+                else 
+                {
+                    //
+                    // There are children, run them
+                    //
+                    context->child_ = context->line_->children_ ;
+                }
+            }
+        }
     }
 
     return code ;

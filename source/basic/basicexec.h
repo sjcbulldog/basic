@@ -4,11 +4,11 @@
 #include "basicerr.h"
 #include "basicproc.h"
 
-int basic_exec_line(basic_line_t *line, basic_out_fn_t outfn) ;
+int basic_exec_line(exec_context_t *ctx, basic_out_fn_t outfn) ;
 void basic_store_line(basic_line_t *line) ;
 
-basic_line_t *basic_cls(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn) ;
-basic_line_t *basic_clear(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn) ;
+void basic_cls(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn) ;
+void basic_clear(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn) ;
 
 static inline uint32_t getU32(basic_line_t *line, int index)
 {

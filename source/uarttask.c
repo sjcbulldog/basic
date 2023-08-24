@@ -26,21 +26,6 @@ static void uart_event_handler(void *arg, cyhal_uart_event_t event)
             // Read one character from the UART
             cyhal_uart_read(&cy_retarget_io_uart_obj, &buffer[cindex], &len);
 
-            // Echo the character
-            if (buffer[cindex] != 0x7f)
-            {
-                cyhal_uart_write(&cy_retarget_io_uart_obj, &buffer[cindex], &len);
-                if (buffer[cindex] == '\r')
-                {
-                    //
-                    // If the character is a return, translate to a line feed and echo
-                    //
-                    wlen = 1;
-                    cyhal_uart_write(&cy_retarget_io_uart_obj, &lf, &wlen);
-                    buffer[cindex] = '\n';
-                }
-            }
-
             if (buffer[cindex] == 0x7f)
             {
                 if (cindex > 0)
@@ -52,6 +37,17 @@ static void uart_event_handler(void *arg, cyhal_uart_event_t event)
             }
             else
             {
+                cyhal_uart_write(&cy_retarget_io_uart_obj, &buffer[cindex], &len);
+                if (buffer[cindex] == '\r')
+                {
+                    //
+                    // If the character is a return, translate to a line feed and echo
+                    //
+                    wlen = 1;
+                    cyhal_uart_write(&cy_retarget_io_uart_obj, &lf, &wlen);
+                    buffer[cindex] = '\n';
+                }
+                
                 buffer[cindex + 1] = '\0';
                 if (buffer[cindex] == '\n')
                 {

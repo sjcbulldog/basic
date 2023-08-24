@@ -69,7 +69,8 @@ const char *basic_value_to_string(basic_value_t *value)
     const char *ret ;
 
     if (value->type_ == BASIC_VALUE_TYPE_STRING) {
-        ret = value->value.svalue_ ;
+        sprintf(parsebuffer, "\"%s\"", value->value.svalue_);
+        ret = parsebuffer ;
     }
     else {
         if ((value->value.nvalue_ - (int)value->value.nvalue_) < 1e-6) {

@@ -8,32 +8,38 @@
 // Token types
 //
 typedef enum btokens {
+    // Char tokens that are important
     BTOKEN_COMMA = 1,
-    BTOKEN_RUN = 2,
-    BTOKEN_CLS = 3,
-    BTOKEN_LIST = 4,
-    BTOKEN_CLEAR = 5,
-    BTOKEN_LET = 6,
-    BTOKEN_IF = 7,
-    BTOKEN_THEN = 8,
-    BTOKEN_ELSE = 9,
-    BTOKEN_ENDIF = 10,
-    BTOKEN_FOR = 11,
-    BTOKEN_TO = 12,
-    BTOKEN_GOTO = 13,
-    BTOKEN_GOSUB = 14,
-    BTOKEN_SAVE = 15,
-    BTOKEN_LOAD = 16,
-    BTOKEN_STEP = 17,
-    BTOKEN_PRINT = 18,
-    BTOKEN_FLIST = 19,
-	BTOKEN_EXPR = 20,
-	BTOKEN_VAR = 21,
-    BTOKEN_REM = 22,
-    BTOKEN_DIM = 23,
-    BTOKEN_DEF = 24,
-    BTOKEN_INPUT = 25,
-    BTOKEN_ON = 26
+    BTOKEN_SEMICOLON = 2,
+
+    // Pseudo tokens 
+    BTOKEN_VAR = 80,
+	BTOKEN_EXPR = 81,
+
+    // These below here are in the token table in basicproc.c
+    BTOKEN_RUN = 100,
+    BTOKEN_CLS = 101,
+    BTOKEN_LIST = 102,
+    BTOKEN_CLEAR = 103,
+    BTOKEN_LET = 104,
+    BTOKEN_IF = 105,
+    BTOKEN_THEN = 106,
+    BTOKEN_ELSE = 107,
+    BTOKEN_ENDIF = 108,
+    BTOKEN_FOR = 109,
+    BTOKEN_TO = 110,
+    BTOKEN_GOTO = 111,
+    BTOKEN_GOSUB = 112,
+    BTOKEN_SAVE = 113,
+    BTOKEN_LOAD = 114,
+    BTOKEN_STEP = 115,
+    BTOKEN_PRINT = 116,
+    BTOKEN_FLIST = 117,
+    BTOKEN_REM = 120,
+    BTOKEN_DIM = 121,
+    BTOKEN_DEF = 122,
+    BTOKEN_INPUT = 123,
+    BTOKEN_ON = 124
 
 } btoken_t ;
 
@@ -46,6 +52,12 @@ typedef struct basic_line
     struct basic_line *children_ ;
     struct basic_line *next_ ;
 } basic_line_t ;
+
+typedef struct exec_context
+{
+    basic_line_t *line_ ;
+    basic_line_t *child_ ;
+} exec_context_t ;
 
 typedef struct token_table
 {

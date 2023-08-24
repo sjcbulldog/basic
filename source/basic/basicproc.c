@@ -21,7 +21,6 @@ static token_table_t tokens[] =
     { BTOKEN_LIST, "list"},
     { BTOKEN_CLEAR, "clear"},
     { BTOKEN_LET, "let"},
-    { BTOKEN_REM, "rem"},
     { BTOKEN_IF, "if"},
     { BTOKEN_THEN, "then"},
     { BTOKEN_ELSE, "else"},
@@ -33,9 +32,13 @@ static token_table_t tokens[] =
     { BTOKEN_SAVE, "save"},
     { BTOKEN_LOAD, "load"},
     { BTOKEN_STEP, "step"},
-    { BTOKEN_LOAD, "load"},        
     { BTOKEN_PRINT, "print"},
-    { BTOKEN_FLIST, "flist"}
+    { BTOKEN_FLIST, "flist"},
+    { BTOKEN_REM, "rem"},    
+    { BTOKEN_DIM, "dim"},
+    { BTOKEN_DEF, "def"},
+    { BTOKEN_INPUT, "input"},
+    { BTOKEN_ON, "on"},
 } ;
 
 static char linebuf[256] ;
@@ -389,6 +392,13 @@ static const char *parse_print(basic_line_t *bline, const char *line, basic_err_
                 return NULL ;        
             }
         }
+        else if (*line == ';') {
+            line++ ;
+            if (!add_token(bline, BTOKEN_SEMICOLON)) {
+                *err = BASIC_ERR_OUT_OF_MEMORY ;
+                return NULL ;        
+            }
+        }
         else {
             *err = BASIC_ERR_EXTRA_CHARS ;
             return NULL ;
@@ -531,6 +541,7 @@ static const char *tokenize_one(const char *line, basic_line_t **bline, basic_er
         //
         // Ok, it is not a basic token, but it might be a variables
         //
+        add_token(ret, BTOKEN_LET);
         line = parse_let(ret, line, err) ;
         if (line == NULL) {
             *err = errsave ;
@@ -564,6 +575,10 @@ static const char *tokenize_one(const char *line, basic_line_t **bline, basic_er
             *err = BASIC_ERR_OUT_OF_MEMORY ;
             basic_destroy_line(ret) ;
             ret = NULL ;
+        }
+        int len = strlen(ret->extra_);
+        if (ret->extra_[len - 1] == '\n') {
+            ret->extra_[len - 1] = '\0' ;
         }
         while (*line != '\0')
             line++ ;
@@ -703,7 +718,12 @@ bool basic_line_proc(const char *line, basic_out_fn_t outfn)
     }
 
     if (ret->lineno_ == -1) {
-        basic_exec_line(ret, outfn) ;
+        exec_context_t ctx ;
+
+        ctx.line_ = ret ;
+        ctx.child_ = NULL ;
+
+        basic_exec_line(&ctx, outfn) ;
         basic_destroy_line(ret);
     }
     else {
@@ -725,6 +745,9 @@ static int read_line(FIL *fp)
 
     while (true) {
         if (got == 0) {
+            if (f_eof(fp))
+                return 0 ;
+                
             //
             // We need more characters, but buffer is empty
             //

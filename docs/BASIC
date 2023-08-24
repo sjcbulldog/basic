@@ -1,0 +1,31 @@
+
+KEYWORDS:                 Parse    ToString    Exec
+- Direct Assign             X         X          X
+- LET                       X         X          X
+- CLS                       X         X          X
+- RUN                       X         X          X
+- FLIST                     X         X          X
+- CLEAR                     X         X          X
+- PRINT (;)                 X         X          X
+- REM                       X         X          X
+- DIM
+- FOR
+- DEF FNx
+- GOTO
+- GOSUB
+- IF/THEN/ELSE/ENDIF
+- INPUT
+- ON expr GOTO
+- ON expr GOSUB
+- DEL
+
+FUNCTIONS:
+- RND
+- INT
+
+OPERATORS:
+- <
+- >
+- <=
+- >=
+- <>
