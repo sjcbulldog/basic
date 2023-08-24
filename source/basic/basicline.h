@@ -38,6 +38,8 @@ typedef struct basic_line
     int lineno_ ;
     int count_ ;
     uint8_t *tokens_ ;
+    char *extra_ ;
+    struct basic_line *children_ ;
     struct basic_line *next_ ;
 } basic_line_t ;
 
