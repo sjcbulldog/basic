@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <assert.h>
 
 static uint32_t next_var_index = 1 ;
 static basic_var_t *vars = NULL ;

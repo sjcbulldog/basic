@@ -19,7 +19,10 @@
 		//mtb//
 		"modustoolbox.toolsPath": "C:/Users/bwg/ModusToolbox/tools_3.0",
 		"cortex-debug.armToolchainPath": "${config:modustoolbox.toolsPath}/gcc/bin",
-		"cortex-debug.openocdPath": "${config:modustoolbox.toolsPath}/openocd/bin/openocd.exe"
+		"cortex-debug.openocdPath": "${config:modustoolbox.toolsPath}/openocd/bin/openocd.exe",
+		"files.associations": {
+			"basicproc.h": "c"
+		}
 	},
 	"extensions": {
 		"recommendations": [ "marus25.cortex-debug", "ms-vscode.cpptools", "dan-c-underwood.arm" ]

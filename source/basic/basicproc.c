@@ -3,14 +3,16 @@
 #include "basicline.h"
 #include "basicexec.h"
 #include "basicexpr.h"
-#include "networksvc.h"
-#include <ff.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
 #include <strings.h>
 #include <string.h>
 #include <stdbool.h>
+
+#ifndef DESKTOP
+#include <ff.h>
+#endif
 
 static const char *prompt = "Basic06> ";
 
@@ -717,6 +719,9 @@ bool basic_line_proc(const char *line, basic_out_fn_t outfn)
         return false ;
     }
 
+    if (ret == NULL)
+        return true ;
+
     if (ret->lineno_ == -1) {
         exec_context_t ctx ;
 
@@ -733,6 +738,7 @@ bool basic_line_proc(const char *line, basic_out_fn_t outfn)
     return rval;
 }
 
+#ifndef DESKTOP
 static UINT got = 0 ;               // The number of chars read into line buf
 static UINT oindex = 0 ;            // Index into the line buffer (other)
 static UINT rdindex = 0 ;            // Index into the read buffer (linebuf)
@@ -806,6 +812,7 @@ bool basic_proc_load(const char *filename, basic_err_t *err, basic_out_fn_t outf
 
     return true;
 }
+#endif
 
 void basic_prompt(basic_out_fn_t outfn)
 {
