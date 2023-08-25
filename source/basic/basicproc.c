@@ -558,7 +558,7 @@ static const char *parse_dim(basic_line_t *bline, const char *line, basic_err_t 
             }
             else {
                 *err = BASIC_ERR_INVALID_CHAR ;
-                retur NULL ;
+                return NULL ;
             }
         }
 
@@ -577,7 +577,7 @@ static const char *parse_dim(basic_line_t *bline, const char *line, basic_err_t 
         }
         else {
             *err = BASIC_ERR_INVALID_CHAR ;
-            retur NULL ;
+            return NULL ;
         }
     }
 
@@ -705,7 +705,7 @@ static const char *tokenize_one(const char *line, basic_line_t **bline, basic_er
         if (line == NULL) {
             basic_destroy_line(ret) ;
             *bline = NULL ;
-            line = NULL ;a            
+            line = NULL ;
         }
     }
 
