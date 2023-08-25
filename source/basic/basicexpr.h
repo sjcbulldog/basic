@@ -33,7 +33,9 @@ extern bool basic_destroy_var(uint32_t index) ;
 extern bool basic_set_var_value(uint32_t index, basic_value_t *value, basic_err_t *err) ;
 extern basic_value_t *basic_get_var_value(uint32_t index) ;
 extern const char *basic_get_var_name(uint32_t index) ;
+extern bool basic_add_dims(uint32_t index, uint32_t dimcnt, int *dims, basic_err_t *err);
 
+extern const char *basic_parse_int(const char *line, int *value, basic_err_t *err) ;
 extern const char *basic_parse_expr(const char *line, uint32_t *index, basic_err_t *err) ;
 extern basic_value_t *basic_eval_expr(uint32_t index, basic_err_t *err);
 extern bool basic_destroy_expr(uint32_t index) ;

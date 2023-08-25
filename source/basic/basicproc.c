@@ -516,6 +516,74 @@ static const char *parse_loadsave(basic_line_t *bline, const char *line, basic_e
     return line ;    
 }
 
+static const char *parse_dim(basic_line_t *bline, const char *line, basic_err_t *err)
+{
+    uint32_t index ;
+    int dimcnt = 0 ;
+    int dims[16] ;
+
+    while (true) {
+        line = parse_varname(line, &index, err) ;
+        if (line == NULL) {
+            return NULL ;
+        }
+
+        line = skipSpaces(line) ;
+        if (*line != '(') {
+            *err = BASIC_ERR_EXPECTED_OPENPAREN ;
+            return NULL ;
+        }
+        line++ ;
+        while (true) {
+            line = basic_parse_int(line, &dims[dimcnt], err) ;
+            if (line == NULL)
+                return NULL ;
+
+            if (dims[dimcnt] < 0 || dims[dimcnt] > 65536 * 4) {
+                *err = BASIC_ERR_INVALID_DIMENSION ;
+                return NULL ;
+            }
+
+            dimcnt++ ;
+
+            line = skipSpaces(line) ;
+
+            if (*line == ',') {
+                // More dimensions
+                line++ ;
+            }
+            else if (*line == ')') {
+                // End of the dimensions
+                break;
+            }
+            else {
+                *err = BASIC_ERR_INVALID_CHAR ;
+                retur NULL ;
+            }
+        }
+
+        // Now we have a complete value
+        if (!basic_add_dims(index, dimcnt - 1, dims, err)) {
+            return NULL ;
+        }
+
+        line = skipSpaces(line) ;
+        if (*line == ',') {
+            // More variables
+            line++ ;
+        }
+        else if (*line == '\0' || *line == ':') {
+            break ;
+        }
+        else {
+            *err = BASIC_ERR_INVALID_CHAR ;
+            retur NULL ;
+        }
+    }
+
+    return line ;
+}
+
 static const char *tokenize_one(const char *line, basic_line_t **bline, basic_err_t *err)
 {
     basic_line_t *ret ;
@@ -631,6 +699,14 @@ static const char *tokenize_one(const char *line, basic_line_t **bline, basic_er
             *bline = NULL ;
             line = NULL ;
         }        
+    }
+    else if (token == BTOKEN_DIM) {
+        line = parse_dim(ret, line, err) ;
+        if (line == NULL) {
+            basic_destroy_line(ret) ;
+            *bline = NULL ;
+            line = NULL ;a            
+        }
     }
 
     return line ;

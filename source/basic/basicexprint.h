@@ -45,6 +45,8 @@ typedef struct basic_var
 {
     char name_[BASIC_MAX_VARIABLE_LENGTH] ;
     uint32_t index_ ;
+    uint32_t dimcnt_ ;
+    int *dims_;
     basic_value_t *value_ ;
     struct basic_var *next_ ;
 } basic_var_t ;

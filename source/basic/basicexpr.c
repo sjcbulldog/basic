@@ -27,6 +27,40 @@ operator_table_t operators[] =
 // or a numeric constant that can be parsed
 static char parsebuffer[265] ;
 
+const char *basic_parse_int(const char *line, int *value, basic_err_t *err)
+{
+    *err = BASIC_ERR_NONE ;
+
+    line = skipSpaces(line) ;
+    if (!isdigit(*line) && *line != '+' && *line != '-') {
+        *err = BASIC_ERR_BAD_INTEGER_VALUE ;
+        return NULL ;
+    }
+
+    bool digit = false ;
+    int index = 0 ;
+    if (*line == '-') {
+        parsebuffer[index++] = *line++ ;
+    }
+    else if (*line == '+') {
+        line++ ;
+    }
+
+    while (isdigit(*line)) {
+        digit = true ;
+        parsebuffer[index++] = *line++ ;
+    }
+
+    if (!digit) {
+        *err = BASIC_ERR_BAD_INTEGER_VALUE ;
+        return NULL ;
+    }
+
+    parsebuffer[index] = '\0' ;
+    *value = atoi(parsebuffer) ;
+    return line ;
+}
+
 bool basic_destroy_value(basic_value_t *value)
 {
     if (value->type_ == BASIC_VALUE_TYPE_STRING) {
@@ -105,6 +139,8 @@ bool basic_get_var(const char *name, uint32_t *index, basic_err_t *err)
     newvar->value_ = NULL ;
     newvar->index_ = next_var_index++ ;
     newvar->next_ = vars ;
+    newvar->dims_ = NULL ;
+    newvar->dimcnt_ = 0 ;
     vars = newvar ;
     
     *index = newvar->index_ ;
@@ -190,6 +226,28 @@ basic_value_t *basic_get_var_value(uint32_t index)
     }
 
     return NULL ;
+}
+
+basic_var_t *get_var_from_index(uint32_t index)
+{
+    for(basic_var_t *var = vars ; var != NULL ; var = var->next_) {
+        if (var->index_ == index) {
+            return var ;
+        }
+    }
+
+    return NULL ;
+}
+
+bool basic_add_dims(uint32_t index, uint32_t dimcnt, int *dims, basic_err_t *err)
+{
+    basic_var_t *var = get_var_from_index(index) ;
+    if (var == NULL) {
+        *err = BASIC_ERR_NO_SUCH_VARIABLE ;
+        return false ;
+    }
+
+    
 }
 
 static void basic_destroy_operator(basic_operand_t *operand)
