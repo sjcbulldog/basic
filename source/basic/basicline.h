@@ -1,9 +1,6 @@
 #pragma once
 #include <stdint.h>
 
-#define BASIC_MAX_KEYWORD_LENGTH            (16)
-#define BASIC_MAX_VARIABLE_LENGTH           (16)
-
 //
 // Token types
 //
@@ -14,7 +11,8 @@ typedef enum btokens {
 
     // Pseudo tokens 
     BTOKEN_VAR = 80,
-	BTOKEN_EXPR = 81,
+    BTOKEN_ARRAY = 81,
+	BTOKEN_EXPR = 82,
 
     // These below here are in the token table in basicproc.c
     BTOKEN_RUN = 100,

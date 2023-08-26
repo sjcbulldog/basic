@@ -2,10 +2,10 @@
 #include "basicerr.h"
 #include "basicproc.h"
 #include "basicexpr.h"
+#include "basiccfg.h"
 #include "mystr.h"
 #include <stdio.h>
 #include <string.h>
-#include <strings.h>
 #include <assert.h>
 
 extern void basic_save(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn) ;
@@ -34,7 +34,7 @@ static void putSpaces(basic_out_fn_t outfn, int count)
 static bool letToString(basic_line_t *line, uint32_t str)
 {
     assert(line->tokens_[1] == BTOKEN_VAR);
-    const char *varname = basic_get_var_name(getU32(line, 2)) ;
+    const char *varname = basic_var_get_name(getU32(line, 2)) ;
     if (!str_add_str(str, varname)) {
         return false ;
     }
@@ -381,7 +381,7 @@ void basic_rem(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
     *err = BASIC_ERR_NONE ;
 }
 
-void basic_let(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+void basic_let_simple(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     // We expect a token pattern of BTOKEN_LET, VAR, EXPR
     assert(line->count_ == 11);
@@ -398,10 +398,53 @@ void basic_let(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
     if (value == NULL)
         return ;
 
-    if (!basic_set_var_value(varindex, value, err))
+    if (!basic_var_set_value(varindex, value, err))
         return ;
 
     return ;
+}
+
+void basic_let_array(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+{
+    int dimcnt ;
+    int dims[BASIC_MAX_DIMS] ;
+    int index = 6 ;
+
+    // We expect a token pattern of BTOKEN_LET, VAR, EXPR
+    assert(line->tokens_[0] == BTOKEN_LET) ;
+    assert(line->tokens_[1] == BTOKEN_ARRAY) ;
+
+    *err = BASIC_ERR_NONE ;    
+
+    uint32_t varindex = getU32(line, 2) ;
+    
+    dimcnt = basic_var_get_dim_count(varindex, err) ;
+    if (dimcnt == -1)
+        return ;
+
+    for(int i = 0 ; i < dimcnt ; i++) {
+        dims[i] = getU32(line, index) ;
+        index += 4 ;
+    }
+
+    uint32_t exprindex = getU32(line, index) ;
+
+    basic_value_t *value = basic_eval_expr(exprindex, err) ;
+    if (value == NULL)
+        return ;
+
+    if (!basic_var_set_array_value(varindex, value, dims, err))
+        return ;
+
+    return ;
+}
+
+void basic_let(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+{
+    if (line->tokens_[1] == BTOKEN_VAR)
+        basic_let_simple(line, err, outfn) ;
+    else
+        basic_let_array(line, err, outfn) ;
 }
 
 void basic_if(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, basic_out_fn_t outfn)

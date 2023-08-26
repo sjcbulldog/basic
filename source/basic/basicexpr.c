@@ -1,12 +1,15 @@
 #include "basicexpr.h"
 #include "basicexprint.h"
 #include "basicerr.h"
+#include "basiccfg.h"
 #include "mystr.h"
 #include <ctype.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <assert.h>
+
+static basic_value_t *eval_node(basic_operand_t *op, basic_err_t *err) ;
 
 static uint32_t next_var_index = 1 ;
 static basic_var_t *vars = NULL ;
@@ -99,6 +102,17 @@ static basic_value_t *create_string_value(const char *v)
     return ret;
 }
 
+static basic_value_t *create_string_value_keep(char *v)
+{
+    basic_value_t *ret = (basic_value_t *)malloc(sizeof(basic_value_t)) ;
+    if (ret == NULL)
+        return NULL ;
+
+    ret->type_ = BASIC_VALUE_TYPE_STRING ;
+    ret->value.svalue_ = v ;
+    return ret;
+}
+
 const char *basic_value_to_string(basic_value_t *value)
 {
     const char *ret ;
@@ -120,7 +134,7 @@ const char *basic_value_to_string(basic_value_t *value)
     return ret;
 }
 
-bool basic_get_var(const char *name, uint32_t *index, basic_err_t *err)
+bool basic_var_get(const char *name, uint32_t *index, basic_err_t *err)
 {    
     for(basic_var_t *var = vars ; var != NULL ; var = var->next_) {
         if (strcmp(var->name_, name) == 0) {
@@ -148,7 +162,7 @@ bool basic_get_var(const char *name, uint32_t *index, basic_err_t *err)
     return true ;
 }
 
-bool basic_destroy_var(uint32_t index)
+bool basic_var_destroy(uint32_t index)
 {
 	basic_var_t *var ;
 
@@ -177,7 +191,7 @@ bool basic_destroy_var(uint32_t index)
 	return true ;
 }
 
-const char *basic_get_var_name(uint32_t index)
+const char *basic_var_get_name(uint32_t index)
 {
     for(basic_var_t *var = vars ; var != NULL ; var = var->next_) {
         if (var->index_ == index) {
@@ -188,7 +202,7 @@ const char *basic_get_var_name(uint32_t index)
     return NULL ;
 }
 
-bool basic_set_var_value(uint32_t index, basic_value_t *value, basic_err_t *err)
+bool basic_var_set_value(uint32_t index, basic_value_t *value, basic_err_t *err)
 {
     for(basic_var_t *var = vars ; var != NULL ; var = var->next_) {
         if (var->index_ == index) {
@@ -217,7 +231,7 @@ bool basic_set_var_value(uint32_t index, basic_value_t *value, basic_err_t *err)
     return false ;
 }
 
-basic_value_t *basic_get_var_value(uint32_t index)
+basic_value_t *basic_var_get_value(uint32_t index)
 {
     for(basic_var_t *var = vars ; var != NULL ; var = var->next_) {
         if (var->index_ == index) {
@@ -239,7 +253,7 @@ basic_var_t *get_var_from_index(uint32_t index)
     return NULL ;
 }
 
-bool basic_add_dims(uint32_t index, uint32_t dimcnt, int *dims, basic_err_t *err)
+bool basic_var_validate_array(uint32_t index, int dimcnt, int *dims, basic_err_t *err)
 {
     basic_var_t *var = get_var_from_index(index) ;
     if (var == NULL) {
@@ -247,7 +261,154 @@ bool basic_add_dims(uint32_t index, uint32_t dimcnt, int *dims, basic_err_t *err
         return false ;
     }
 
-    
+    if (var->dimcnt_ == 0) {
+        *err = BASIC_ERR_NOT_ARRAY ;
+        return false ;
+    }    
+
+    if (var->dimcnt_ != dimcnt) {
+        *err = BASIC_ERR_DIM_MISMATCH ;
+        return false ;
+    }
+
+    for(int i = 0 ; i < dimcnt ; i++) {
+        if (dims[i] > var->dims_[i]) {
+            *err = BASIC_ERR_INVALID_DIMENSION ;
+            return false;
+        }
+    }
+
+    return true ;
+}
+
+int basic_var_get_dim_count(uint32_t index, basic_err_t *err)
+{
+    basic_var_t *var = get_var_from_index(index) ;
+    if (var == NULL) {
+        *err = BASIC_ERR_NO_SUCH_VARIABLE ;
+        return -1 ;
+    }
+
+    if (var->dimcnt_ == 0) {
+        *err = BASIC_ERR_NOT_ARRAY ;
+        return -1 ;
+    }
+
+    return var->dimcnt_ ;
+}
+
+static int compute_index(int dimcnt, int *maxdims, int *dims)
+{
+    int ret = 0 ;
+    int mult = 1 ;
+    for(int i = 0 ; i < dimcnt ; i++) {
+        ret += dims[i] * mult ;
+        mult *= maxdims[i] ;
+    }
+
+    return ret ;
+}
+
+bool basic_var_set_array_value(uint32_t index, basic_value_t *value, int *dims, basic_err_t *err)
+{
+    basic_var_t *var = get_var_from_index(index) ;
+    if (var == NULL) {
+        *err = BASIC_ERR_NO_SUCH_VARIABLE ;
+        return false ;
+    }
+
+    if (var->dimcnt_ == 0) {
+        *err = BASIC_ERR_NOT_ARRAY ;
+        return false ;
+    }
+
+    if (var->sarray_ != NULL) {
+        // String array
+        if (value->type_ != BASIC_VALUE_TYPE_STRING) {
+            *err = BASIC_ERR_TYPE_MISMATCH ;
+            return false ;
+        }
+
+        int index = compute_index(var->dimcnt_, var->dims_, dims) ;
+        if (index == -1) {
+            *err = BASIC_ERR_INVALID_DIMENSION ;
+            return false ;
+        }
+        var->sarray_[index] = strdup(value->value.svalue_) ;
+        if (var->sarray_[index] == NULL) {
+            *err = BASIC_ERR_OUT_OF_MEMORY ;
+            return false ;
+        }
+    }
+    else {
+        // Double array
+        if (value->type_ != BASIC_VALUE_TYPE_NUMBER) {
+            *err = BASIC_ERR_TYPE_MISMATCH ;
+            return false ;
+        }    
+
+        int index = compute_index(var->dimcnt_, var->dims_, dims) ;
+        if (index == -1) {
+            *err = BASIC_ERR_INVALID_DIMENSION ;
+            return false ;
+        }
+        var->darray_[index] = value->value.nvalue_ ;
+    }
+
+    return true ;
+}
+
+static bool isString(basic_var_t *var)
+{
+    return var->name_[strlen(var->name_) - 1] == '$' ;
+}
+
+bool basic_var_add_dims(uint32_t index, uint32_t dimcnt, int *dims, basic_err_t *err)
+{
+    basic_var_t *var = get_var_from_index(index) ;
+    if (var == NULL) {
+        *err = BASIC_ERR_NO_SUCH_VARIABLE ;
+        return false ;
+    }
+
+    var->dimcnt_ = dimcnt ;
+    var->dims_ = (int *)malloc(sizeof(int) * dimcnt) ;
+    if (var->dims_ == NULL)
+        return false ;
+
+    memcpy(var->dims_, dims, sizeof(int) * dimcnt) ;
+
+    int total = 1 ;
+    for(int i = 0 ; i < dimcnt ; i++) {
+        total *= dims[i] ;
+    }
+
+    if (isString(var)) {
+        var->sarray_ = (char **)malloc(sizeof(char *) * total) ;
+        if (var->sarray_ == NULL) {
+            var->dimcnt_ = 0 ;
+            free(var->dims_);
+            return false;
+        }
+        else {
+            memset(var->sarray_, 0, sizeof(char *) * total) ;
+        }
+    }    
+    else {
+        var->darray_ = (double *)malloc(sizeof(double) * total) ;
+        if (var->sarray_ == NULL) {
+            var->dimcnt_ = 0 ;
+            free(var->dims_);
+            return false;
+        }
+        else {
+            for(int i = 0 ; i < total ; i++) {
+                var->darray_[i] = 0.0 ;
+            }
+        }
+    }
+
+    return true ;
 }
 
 static void basic_destroy_operator(basic_operand_t *operand)
@@ -263,7 +424,9 @@ static void basic_destroy_operator(basic_operand_t *operand)
             break ;
 
         case BASIC_OPERAND_TYPE_VAR:
-            // Nothing to do here
+            if (operand->operand_.var_.dimcnt_ > 0) {
+                free(operand->operand_.var_.dims_) ;
+            }
             break; 
     }
 }
@@ -295,14 +458,25 @@ static basic_operand_t *create_const_operand(basic_value_t *value)
     return ret ;
 }
 
-static basic_operand_t *create_var_operand(uint32_t varindex)
+static basic_operand_t *create_var_operand(uint32_t varindex, int dimcnt, int *dims)
 {
     basic_operand_t *ret = (basic_operand_t *)malloc(sizeof(basic_operand_t)) ;
     if (ret == NULL)
         return NULL ;
 
     ret->type_ = BASIC_OPERAND_TYPE_VAR ;
-    ret->operand_.var_ = varindex ;
+    ret->operand_.var_.varindex_ = varindex ;
+    ret->operand_.var_.dimcnt_ = dimcnt ;
+    if (dimcnt == 0) {
+        ret->operand_.var_.dims_ = NULL ;
+    }
+    else {
+        ret->operand_.var_.dims_ = (int *)malloc(sizeof(int) * dimcnt) ;
+        if (ret->operand_.var_.dims_ == NULL) {
+            free(ret) ;
+            return NULL ;
+        }
+    }
     return ret ;    
 }
 
@@ -409,13 +583,44 @@ static const char *parse_operand(const char *line, basic_operand_t **operand, ba
             return NULL ;
         }
 
+        line = skipSpaces(line) ;
+        int dimcnt = 0 ;
+        int dims[BASIC_MAX_DIMS]  ;
+
+        if (*line == '(') {
+            line++ ;
+            while (true) {
+                if (dimcnt == BASIC_MAX_DIMS) {
+                    *err = BASIC_ERR_TOO_MANY_DIMS ;
+                    return NULL ;
+                }
+
+                if (!basic_parse_int(line, &dims[dimcnt], err)) {
+                    return NULL ;
+                }
+
+                line = skipSpaces(line) ;
+                if (*line == ')') {
+                    line++ ;
+                    break ;
+                }
+                else if (*line == ',') {
+                    line++ ;
+                }
+                else {
+                    *err = BASIC_ERR_INVALID_CHAR ;
+                    return NULL ;
+                }
+            }
+        }
+
         uint32_t index ;
         parsebuffer[bind] = '\0' ;
-        if (!basic_get_var(parsebuffer, &index, err)) {
+        if (!basic_var_get(parsebuffer, &index, err)) {
             return NULL ;
         }
 
-        *operand = create_var_operand(index);
+        *operand = create_var_operand(index, dimcnt, dims);
     }
 
     return line ;
@@ -434,6 +639,38 @@ static const char *parse_operator(const char *line, operator_table_t **oper, bas
 
     *err = BASIC_ERR_INVALID_OPERATOR ;
     return line ;
+}
+
+static uint32_t dimvar_to_str(basic_var_args_t *var)
+{
+    uint32_t str = str_create() ;
+    if (str == STR_INVALID)
+        return STR_INVALID  ;
+
+    const char *v = basic_var_get_name(var->varindex_);
+    if (!str_add_str(str, v)) {
+        str_destroy(str) ;
+        return STR_INVALID ;
+    }
+
+    if (!str_add_str(str, "(")) {
+                str_destroy(str) ;
+        return STR_INVALID ;
+    }
+
+    for(int i = 0 ; i < var->dimcnt_ ; i++) {
+        if (i != 0) {
+            if (!str_add_str(str, ",")) {
+                str_destroy(str) ;
+                return STR_INVALID ;
+            }            
+        }
+    }
+
+    if (!str_add_str(str, ")")) {
+        str_destroy(str) ;
+        return STR_INVALID ;
+    }
 }
 
 static bool basic_oper_to_string(basic_operand_t *oper, uint32_t str)
@@ -467,9 +704,22 @@ static bool basic_oper_to_string(basic_operand_t *oper, uint32_t str)
             break;
 
         case BASIC_OPERAND_TYPE_VAR:
-            v = basic_get_var_name(oper->operand_.var_);
-            if (!str_add_str(str, v))
-                ret = false ;
+            // TODO: deal with arrays
+            if (oper->operand_.var_.dimcnt_ > 0) {
+                int strh = dimvar_to_str(&oper->operand_.var_) ;
+                if (strh == STR_INVALID)
+                    ret = false;
+
+                if (!str_add_handle(str, strh)) {
+                    str_destroy(strh) ;
+                    ret = false ;
+                }
+            }
+            else {
+                v = basic_var_get_name(oper->operand_.var_.varindex_);
+                if (!str_add_str(str, v))
+                    ret = false ;
+            }
 
             break ;
     }
@@ -677,6 +927,143 @@ bool basic_destroy_expr(uint32_t index)
     return true ;
 }
 
+static basic_value_t *clone_value(basic_value_t *v)
+{
+    basic_value_t *ret ;
+
+    if (v->type_ == BASIC_VALUE_TYPE_NUMBER)
+        ret = create_number_value(v->value.nvalue_) ;
+    else
+        ret = create_string_value(v->value.svalue_) ;
+
+    return ret;
+}
+
+static basic_value_t *eval_plus(basic_value_t *left, basic_value_t *right, basic_err_t *err)
+{
+    basic_value_t *ret ;
+
+    if (left->type_ != right->type_) {
+        *err = BASIC_ERR_TYPE_MISMATCH ;
+        return NULL ;
+    }
+
+    if (left->type_ == BASIC_VALUE_TYPE_NUMBER) {
+        ret = create_number_value(left->value.nvalue_ + right->value.nvalue_);
+    }
+    else {
+        char *combined  = (char *)malloc(strlen(left->value.svalue_) + strlen(right->value.svalue_) + 1) ;
+        if (combined == NULL) {
+            *err = BASIC_ERR_OUT_OF_MEMORY ;
+            return NULL ;
+        }
+        strcpy(combined, left->value.svalue_) ;
+        strcat(combined, right->value.svalue_) ;        
+        ret = create_string_value_keep(combined) ;
+        if (ret == NULL) {
+            free(combined) ;
+        }
+    }
+
+    if (ret == NULL) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+    }
+
+    return ret;
+}
+
+static basic_value_t *eval_minus(basic_value_t *left, basic_value_t *right, basic_err_t *err)
+{
+    basic_value_t *ret ;
+
+    if (left->type_ == BASIC_VALUE_TYPE_STRING || right->type_ == BASIC_VALUE_TYPE_STRING) {
+        *err = BASIC_ERR_TYPE_MISMATCH ;
+        return NULL ;
+    }
+
+    ret = create_number_value(left->value.nvalue_ - right->value.nvalue_);
+
+    if (ret == NULL) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+    }
+
+    return ret;
+}
+
+static basic_value_t *eval_times(basic_value_t *left, basic_value_t *right, basic_err_t *err)
+{
+    basic_value_t *ret ;
+
+    if (left->type_ == BASIC_VALUE_TYPE_STRING || right->type_ == BASIC_VALUE_TYPE_STRING) {
+        *err = BASIC_ERR_TYPE_MISMATCH ;
+        return NULL ;
+    }
+
+    ret = create_number_value(left->value.nvalue_ * right->value.nvalue_);
+
+    if (ret == NULL) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+    }
+
+    return ret;
+}
+
+static basic_value_t *eval_divide(basic_value_t *left, basic_value_t *right, basic_err_t *err)
+{
+    basic_value_t *ret ;
+
+    if (left->type_ == BASIC_VALUE_TYPE_STRING || right->type_ == BASIC_VALUE_TYPE_STRING) {
+        *err = BASIC_ERR_TYPE_MISMATCH ;
+        return NULL ;
+    }
+
+    if (right->value.nvalue_ == 0) {
+        *err = BASIC_ERR_DIVIDE_ZERO ;
+        return NULL ;
+    }
+
+    ret = create_number_value(left->value.nvalue_ / right->value.nvalue_);
+
+    if (ret == NULL) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+    }
+
+    return ret;
+}
+
+static basic_value_t *eval_operator(operator_table_t *oper, basic_operand_t *left, basic_operand_t *right, basic_err_t *err)
+{
+    basic_value_t *ret ;
+
+    basic_value_t *leftval = eval_node(left, err) ;
+    if (leftval == NULL)
+        return NULL ;
+
+    basic_value_t *rightval = eval_node(right, err) ;
+    if (rightval == NULL) {
+        basic_destroy_value(leftval) ;
+        return NULL ;
+    }
+
+    switch(oper->oper_) {
+        case BASIC_OPERATOR_PLUS:
+            ret = eval_plus(leftval, rightval, err) ;
+            break ;
+        case BASIC_OPERATOR_MINUS:
+            ret = eval_minus(leftval, rightval, err) ;
+            break ;
+        case BASIC_OPERATOR_TIMES:
+            ret = eval_times(leftval, rightval, err) ;
+            break ;
+        case BASIC_OPERATOR_DIVIDE:
+            ret = eval_divide(leftval, rightval, err) ;
+            break ;        
+    }
+
+    basic_destroy_value(leftval) ;
+    basic_destroy_value(rightval) ;
+    return ret;
+}
 
 static basic_value_t *eval_node(basic_operand_t *op, basic_err_t *err)
 {
@@ -685,12 +1072,26 @@ static basic_value_t *eval_node(basic_operand_t *op, basic_err_t *err)
     switch(op->type_)
     {
         case BASIC_OPERAND_TYPE_CONST:
-            ret = op->operand_.const_value_ ;            
+            ret = clone_value(op->operand_.const_value_) ;
             break ;
         case BASIC_OPERAND_TYPE_OPERATOR:
+            ret = eval_operator(op->operand_.operator_args_.operator_, 
+                                op->operand_.operator_args_.left_,
+                                op->operand_.operator_args_.right_, err) ;
             break; 
         case BASIC_OPERAND_TYPE_VAR:
-            ret = basic_get_var_value(op->operand_.var_);
+            {
+                if (op->operand_.var_.dimcnt_ == 0) {
+                    ret = clone_value(basic_var_get_value(op->operand_.var_.varindex_));
+                }
+                else {
+                    //
+                    // We create a new value here since the storage is just the values and not a
+                    // basic_value_t object.
+                    //
+                    ret = basic_var_get_array_value(op->operand_.var_.varindex_, op->operand_.var_.dims_) ;
+                }
+            }
             break; 
     }
 

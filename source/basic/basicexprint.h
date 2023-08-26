@@ -2,6 +2,7 @@
 
 #include "basicline.h"
 #include "basicexpr.h"
+#include "basiccfg.h"
 
 #define BASIC_OPERAND_TYPE_NONE         (0)
 #define BASIC_OPERAND_TYPE_VAR          (1)
@@ -31,11 +32,18 @@ typedef struct basic_operator_args
     basic_operand_t *right_ ;
 } basic_operator_args_t ;
 
+typedef struct basic_var_args
+{
+    uint32_t varindex_ ;
+    int dimcnt_ ;
+    int *dims_ ;
+} basic_var_args_t ;
+
 typedef struct basic_operand
 {
     uint8_t type_ ;
     union {
-        uint32_t var_ ;
+        basic_var_args_t var_ ;
         basic_value_t *const_value_ ;
         basic_operator_args_t operator_args_ ;
     } operand_ ;
@@ -47,7 +55,11 @@ typedef struct basic_var
     uint32_t index_ ;
     uint32_t dimcnt_ ;
     int *dims_;
-    basic_value_t *value_ ;
+    union {
+        basic_value_t *value_ ;
+        double *darray_ ;
+        char **sarray_ ;
+    } ;
     struct basic_var *next_ ;
 } basic_var_t ;
 

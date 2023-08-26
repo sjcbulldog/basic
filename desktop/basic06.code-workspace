@@ -1,0 +1,28 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": ".."
+		}
+	],
+    "settings": {},
+    "launch": {
+        "version": "0.2.0",
+        "configurations": [
+            {
+                "name": "(arm-none-eabi-gdb) Launch",
+                "type": "cppdbg",
+                "request": "launch",
+                "miDebuggerPath": "C:/cygwin64/bin/gdb",
+                "program": "basic.exe",
+                "setupCommands": [
+                ],
+                "launchCompleteCommand": "None",
+                "externalConsole": false,
+                "cwd": "${workspaceFolder}",
+            }            
+        ]
+    }
+}

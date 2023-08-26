@@ -3,10 +3,10 @@
 #include "basicline.h"
 #include "basicexec.h"
 #include "basicexpr.h"
+#include "basiccfg.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
-#include <strings.h>
 #include <string.h>
 #include <stdbool.h>
 
@@ -92,7 +92,7 @@ void basic_destroy_line(basic_line_t *line)
     		if (line->tokens_[index] == BTOKEN_VAR) {
     			uint32_t var = getU32(line, index + 1);
     			index += 5 ;
-    			basic_destroy_var(var);
+    			basic_var_destroy(var);
     		}
     		else if (line->tokens_[index] == BTOKEN_EXPR) {
     			uint32_t var = getU32(line, index + 1);
@@ -221,7 +221,7 @@ static const char *parse_varname(const char *line, uint32_t *varindex, basic_err
         return NULL ;
     }
 
-    if (!basic_get_var(keyword, varindex, err)) {
+    if (!basic_var_get(keyword, varindex, err)) {
         return NULL ;
     }
 
@@ -413,6 +413,8 @@ static const char *parse_print(basic_line_t *bline, const char *line, basic_err_
 static const char *parse_let(basic_line_t *bline, const char *line, basic_err_t *err)
 {
     uint32_t varindex, exprindex ;
+    int dimcnt = 0 ;
+    int dims[BASIC_MAX_DIMS] ;
 
     line = parse_varname(line, &varindex, err) ;
     if (line == NULL) {
@@ -420,6 +422,12 @@ static const char *parse_let(basic_line_t *bline, const char *line, basic_err_t 
     }
 
     line = skipSpaces(line) ;
+    if (*line == '(') {
+        //
+        // This is an array
+        //
+    }
+
     if (*line != '=') {
         *err = BASIC_ERR_EXPECTED_EQUAL ;
         return NULL ;
@@ -438,14 +446,42 @@ static const char *parse_let(basic_line_t *bline, const char *line, basic_err_t 
         return NULL ;
     }
 
-    if (!add_token(bline, BTOKEN_VAR)) {
-        *err = BASIC_ERR_OUT_OF_MEMORY ;
-        return NULL ;
-    }
+    if (dimcnt > 0) {
+        //
+        // We need to confirm that the number of dimensions is avlid
+        //
 
-    if (!add_uint32(bline, varindex)) {
-        *err = BASIC_ERR_OUT_OF_MEMORY ;
-        return NULL ;
+        if (!basic_var_validate_array(varindex, dimcnt, dims, err)) {
+            return NULL ;
+        }
+
+        if (!add_token(bline, BTOKEN_ARRAY)) {
+            *err = BASIC_ERR_OUT_OF_MEMORY ;
+            return NULL ;
+        }
+
+        if (!add_uint32(bline, varindex)) {
+            *err = BASIC_ERR_OUT_OF_MEMORY ;
+            return NULL ;
+        }
+
+        for(int i = 0 ; i < dimcnt ; i++) {
+            if (!add_uint32(bline, dims[i])) {
+                *err = BASIC_ERR_OUT_OF_MEMORY ;
+                return NULL ;
+            }            
+        }
+    }
+    else {
+        if (!add_token(bline, BTOKEN_VAR)) {
+            *err = BASIC_ERR_OUT_OF_MEMORY ;
+            return NULL ;
+        }
+
+        if (!add_uint32(bline, varindex)) {
+            *err = BASIC_ERR_OUT_OF_MEMORY ;
+            return NULL ;
+        }
     }
 
     if (!add_token(bline, BTOKEN_EXPR)) {
@@ -520,7 +556,7 @@ static const char *parse_dim(basic_line_t *bline, const char *line, basic_err_t 
 {
     uint32_t index ;
     int dimcnt = 0 ;
-    int dims[16] ;
+    int dims[BASIC_MAX_DIMS] ;
 
     while (true) {
         line = parse_varname(line, &index, err) ;
@@ -535,11 +571,15 @@ static const char *parse_dim(basic_line_t *bline, const char *line, basic_err_t 
         }
         line++ ;
         while (true) {
+            if (dimcnt == BASIC_MAX_DIMS) {
+                *err = BASIC_ERR_TOO_MANY_DIMS ;
+                return NULL ;
+            }
             line = basic_parse_int(line, &dims[dimcnt], err) ;
             if (line == NULL)
                 return NULL ;
 
-            if (dims[dimcnt] < 0 || dims[dimcnt] > 65536 * 4) {
+            if (dims[dimcnt] < 0 || dims[dimcnt] > BASIC_MAX_SINGLE_DIM) {
                 *err = BASIC_ERR_INVALID_DIMENSION ;
                 return NULL ;
             }
@@ -563,7 +603,7 @@ static const char *parse_dim(basic_line_t *bline, const char *line, basic_err_t 
         }
 
         // Now we have a complete value
-        if (!basic_add_dims(index, dimcnt - 1, dims, err)) {
+        if (!basic_var_add_dims(index, dimcnt - 1, dims, err)) {
             return NULL ;
         }
 
