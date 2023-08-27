@@ -88,6 +88,10 @@ static basic_value_t *create_number_value(double v)
 
 static basic_value_t *create_string_value(const char *v)
 {
+    if (v == NULL) {
+        v = "" ;
+    }
+
     basic_value_t *ret = (basic_value_t *)malloc(sizeof(basic_value_t)) ;
     if (ret == NULL)
         return NULL ;
@@ -302,11 +306,40 @@ static int compute_index(int dimcnt, int *maxdims, int *dims)
     int ret = 0 ;
     int mult = 1 ;
     for(int i = 0 ; i < dimcnt ; i++) {
-        ret += dims[i] * mult ;
+        ret += (dims[i] - 1) * mult ;
         mult *= maxdims[i] ;
     }
 
     return ret ;
+}
+
+basic_value_t *basic_var_get_array_value(uint32_t index, int *dims, basic_err_t *err)
+{
+    basic_value_t *ret ;
+
+    basic_var_t *var = get_var_from_index(index) ;
+    if (var == NULL) {
+        *err = BASIC_ERR_NO_SUCH_VARIABLE ;
+        return NULL ;
+    }
+
+    if (var->dimcnt_ == 0) {
+        *err = BASIC_ERR_NOT_ARRAY ;
+        return NULL ;
+    }
+
+    int ain = compute_index(var->dimcnt_, var->dims_, dims) ;
+    if (ain == -1) {
+        *err = BASIC_ERR_INVALID_DIMENSION ;
+        return NULL ;
+    }
+
+    if (var->sarray_ != NULL) {
+        ret = create_string_value(var->sarray_[ain]);
+    }
+    else {
+        ret = create_number_value(var->darray_[ain]);
+    }
 }
 
 bool basic_var_set_array_value(uint32_t index, basic_value_t *value, int *dims, basic_err_t *err)
@@ -329,13 +362,14 @@ bool basic_var_set_array_value(uint32_t index, basic_value_t *value, int *dims, 
             return false ;
         }
 
-        int index = compute_index(var->dimcnt_, var->dims_, dims) ;
-        if (index == -1) {
+        int ain = compute_index(var->dimcnt_, var->dims_, dims) ;
+        if (ain == -1) {
             *err = BASIC_ERR_INVALID_DIMENSION ;
             return false ;
         }
-        var->sarray_[index] = strdup(value->value.svalue_) ;
-        if (var->sarray_[index] == NULL) {
+
+        var->sarray_[ain] = _strdup(value->value.svalue_) ;
+        if (var->sarray_[ain] == NULL) {
             *err = BASIC_ERR_OUT_OF_MEMORY ;
             return false ;
         }
@@ -347,12 +381,12 @@ bool basic_var_set_array_value(uint32_t index, basic_value_t *value, int *dims, 
             return false ;
         }    
 
-        int index = compute_index(var->dimcnt_, var->dims_, dims) ;
-        if (index == -1) {
+        int ain = compute_index(var->dimcnt_, var->dims_, dims) ;
+        if (ain == -1) {
             *err = BASIC_ERR_INVALID_DIMENSION ;
             return false ;
         }
-        var->darray_[index] = value->value.nvalue_ ;
+        var->darray_[ain] = value->value.nvalue_ ;
     }
 
     return true ;
@@ -379,7 +413,7 @@ bool basic_var_add_dims(uint32_t index, uint32_t dimcnt, int *dims, basic_err_t 
     memcpy(var->dims_, dims, sizeof(int) * dimcnt) ;
 
     int total = 1 ;
-    for(int i = 0 ; i < dimcnt ; i++) {
+    for(uint32_t i = 0 ; i < dimcnt ; i++) {
         total *= dims[i] ;
     }
 
@@ -1033,7 +1067,7 @@ static basic_value_t *eval_divide(basic_value_t *left, basic_value_t *right, bas
 
 static basic_value_t *eval_operator(operator_table_t *oper, basic_operand_t *left, basic_operand_t *right, basic_err_t *err)
 {
-    basic_value_t *ret ;
+    basic_value_t* ret = NULL;
 
     basic_value_t *leftval = eval_node(left, err) ;
     if (leftval == NULL)
@@ -1089,7 +1123,7 @@ static basic_value_t *eval_node(basic_operand_t *op, basic_err_t *err)
                     // We create a new value here since the storage is just the values and not a
                     // basic_value_t object.
                     //
-                    ret = basic_var_get_array_value(op->operand_.var_.varindex_, op->operand_.var_.dims_) ;
+                    ret = basic_var_get_array_value(op->operand_.var_.varindex_, op->operand_.var_.dims_, err) ;
                 }
             }
             break; 

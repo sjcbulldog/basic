@@ -5,7 +5,7 @@
 #include <stdbool.h>
 #include <ctype.h>
 
-enum basic_value_type {
+typedef enum basic_value_type {
     BASIC_VALUE_TYPE_NUMBER = 1,
     BASIC_VALUE_TYPE_STRING = 2,
 } basic_value_type_t ;
@@ -34,7 +34,7 @@ extern bool basic_var_destroy(uint32_t index) ;
 extern bool basic_var_set_value(uint32_t index, basic_value_t *value, basic_err_t *err) ;
 extern bool basic_var_set_array_value(uint32_t index, basic_value_t *value, int *dims, basic_err_t *err) ;
 extern basic_value_t *basic_var_get_value(uint32_t index) ;
-extern basic_value_t *basic_var_get_array_value(uint32_t index, int *dims) ;
+extern basic_value_t *basic_var_get_array_value(uint32_t index, int *dims, basic_err_t *err) ;
 extern const char *basic_var_get_name(uint32_t index) ;
 extern bool basic_var_add_dims(uint32_t index, uint32_t dimcnt, int *dims, basic_err_t *err);
 extern bool basic_var_validate_array(uint32_t index, int dimcnt, int *dims, basic_err_t *err) ;

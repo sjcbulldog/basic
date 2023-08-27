@@ -11,6 +11,7 @@
 libs/
 
 desktop/objects
+desktop/.vs
 
 # Eclipse IDE for ModusToolbox files
 .metadata/

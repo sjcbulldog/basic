@@ -178,7 +178,7 @@ static const char *parse_keyword(const char *line, uint8_t *token, basic_err_t *
     keyword[stored] = '\0' ;
 
     for(int i = 0 ; i < sizeof(tokens)/sizeof(tokens[0]) ; i++) {
-        if (strcasecmp(tokens[i].str_, keyword) == 0) {
+        if (_stricmp(tokens[i].str_, keyword) == 0) {
             *token = tokens[i].token_ ;
             return line ;
         }
@@ -594,6 +594,7 @@ static const char *parse_dim(basic_line_t *bline, const char *line, basic_err_t 
             }
             else if (*line == ')') {
                 // End of the dimensions
+                line++;
                 break;
             }
             else {
@@ -603,7 +604,7 @@ static const char *parse_dim(basic_line_t *bline, const char *line, basic_err_t 
         }
 
         // Now we have a complete value
-        if (!basic_var_add_dims(index, dimcnt - 1, dims, err)) {
+        if (!basic_var_add_dims(index, dimcnt, dims, err)) {
             return NULL ;
         }
 
@@ -680,7 +681,7 @@ static const char *tokenize_one(const char *line, basic_line_t **bline, basic_er
             ret = NULL ;
         }
     } else if (token == BTOKEN_REM) {
-        ret->extra_ = strdup(line) ;
+        ret->extra_ = _strdup(line) ;
         if (ret->extra_ == NULL) {
             *err = BASIC_ERR_OUT_OF_MEMORY ;
             basic_destroy_line(ret) ;
@@ -754,7 +755,7 @@ static const char *tokenize_one(const char *line, basic_line_t **bline, basic_er
 
 static basic_line_t *tokenize(const char *line, basic_err_t *err)
 {
-    basic_line_t *ret, *child, *last = NULL ;
+    basic_line_t *ret = NULL, *child, *last = NULL ;
     bool first = true ;
     int lineno = -1 ;
 
