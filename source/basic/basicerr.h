@@ -38,4 +38,5 @@ typedef enum {
     BASIC_ERR_DIVIDE_ZERO = 30,
     BASIC_ERR_NOT_ARRAY = 31,
     BASIC_ERR_DIM_MISMATCH = 32,
+    BASIC_ERR_BAD_ARG_COUNT = 33,
 } basic_err_t ;

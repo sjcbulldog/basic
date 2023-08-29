@@ -126,6 +126,8 @@ void basic_flist(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 static cy_rslt_t outfn(const char *text, int size)
 {
     fwrite(text, 1, size, stdout) ;
+
+    return 0;
 }
 
 static char inbuf[512] ;
@@ -145,7 +147,8 @@ int main(int ac, char **av)
         if (fgets(inbuf, sizeof(inbuf), f) == NULL)
             break; 
 
-        basic_line_proc(inbuf, outfn) ;
+        if (!basic_line_proc(inbuf, outfn))
+            break;
     }
 
     fclose(f) ;

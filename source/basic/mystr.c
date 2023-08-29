@@ -5,7 +5,8 @@
 #include <assert.h>
 #include <string.h>
 
-#define MY_STR_COUNT            (32)
+// TODO turn string storage array into dynamicalls allocated list
+#define MY_STR_COUNT            (256)
 #define MY_STR_BLOCK_SIZE       (32)
 
 typedef struct one_string
@@ -62,9 +63,9 @@ extern bool str_add_str(uint32_t h, const char *str)
 {
     one_string_t *one = &storage[h] ;
 
-    int len = strlen(str) ;
+    int len = (int)strlen(str) ;
     int total = one->index_ + len + 1 ;
-    if (total > one->allocated_) {
+    if (total > (int)one->allocated_) {
         int size = total / MY_STR_BLOCK_SIZE ;
         if (total % MY_STR_BLOCK_SIZE != 0)
             size++ ;

@@ -9,6 +9,10 @@
 #include <stdio.h>
 #include <assert.h>
 
+#ifndef DESKTOP
+#define _stricmp strcasecmp
+#endif
+
 static basic_value_t *eval_node(basic_operand_t *op, basic_err_t *err) ;
 
 static uint32_t next_var_index = 1 ;
@@ -25,17 +29,116 @@ operator_table_t operators[] =
     { BASIC_OPERATOR_DIVIDE, "/", 3 },            
 } ;
 
-// This must be at least BASIC_MAX_VARIABLE_LENGTH + 1 long.
-// The length of this determines the length of a string constant
-// or a numeric constant that can be parsed
-static char parsebuffer[265] ;
+static basic_value_t* func_int(int count, basic_value_t** args, basic_err_t *err);
+static basic_value_t* func_rnd(int count, basic_value_t** args, basic_err_t *err);
+
+function_table_t functions[] =
+{
+    { 1, "INT", func_int },
+    { 1, "RND", func_rnd },
+};
+
+const char* basic_parse_dims_const(const char* line, int* dimcnt, int* dims, basic_err_t* err)
+{
+    *dimcnt = 0;
+
+    line = skipSpaces(line);
+    if (*line != '(') {
+        *err = BASIC_ERR_EXPECTED_OPENPAREN;
+        return NULL;
+    }
+    line++;
+
+    while (true) {
+        if (*dimcnt == BASIC_MAX_DIMS) {
+            *err = BASIC_ERR_TOO_MANY_DIMS;
+            return NULL;
+        }
+        line = basic_parse_int(line, &dims[*dimcnt], err);
+        if (line == NULL)
+            return NULL;
+
+        if (dims[*dimcnt] < 0 || dims[*dimcnt] > BASIC_MAX_SINGLE_DIM) {
+            *err = BASIC_ERR_INVALID_DIMENSION;
+            return NULL;
+        }
+
+        (*dimcnt)++;
+
+        line = skipSpaces(line);
+
+        if (*line == ',') {
+            // More dimensions
+            line++;
+        }
+        else if (*line == ')') {
+            // End of the dimensions
+            line++;
+            break;
+        }
+        else {
+            *err = BASIC_ERR_INVALID_CHAR;
+            return NULL;
+        }
+    }
+
+    return line;
+}
+
+const char* basic_parse_dims_expr(const char* line, int* dimcnt, uint32_t* dims, basic_err_t* err)
+{
+    *dimcnt = 0;
+
+    line = skipSpaces(line);
+    if (*line != '(') {
+        *err = BASIC_ERR_EXPECTED_OPENPAREN;
+        return NULL;
+    }
+    line++;
+
+    while (true) {
+        if (*dimcnt == BASIC_MAX_DIMS) {
+            *err = BASIC_ERR_TOO_MANY_DIMS;
+            return NULL;
+        }
+        line = basic_parse_expr(line, &dims[*dimcnt], err);
+        if (line == NULL)
+            return NULL;
+
+        if (dims[*dimcnt] < 0 || dims[*dimcnt] > BASIC_MAX_SINGLE_DIM) {
+            *err = BASIC_ERR_INVALID_DIMENSION;
+            return NULL;
+        }
+
+        (*dimcnt)++;
+
+        line = skipSpaces(line);
+
+        if (*line == ',') {
+            // More dimensions
+            line++;
+        }
+        else if (*line == ')') {
+            // End of the dimensions
+            line++;
+            break;
+        }
+        else {
+            *err = BASIC_ERR_INVALID_CHAR;
+            return NULL;
+        }
+    }
+
+    return line;
+}
 
 const char *basic_parse_int(const char *line, int *value, basic_err_t *err)
 {
     *err = BASIC_ERR_NONE ;
+    static char parsebuffer[32];
 
     line = skipSpaces(line) ;
-    if (!isdigit(*line) && *line != '+' && *line != '-') {
+    if (!isdigit((int)*line) && *line != '+' && *line != '-') {
         *err = BASIC_ERR_BAD_INTEGER_VALUE ;
         return NULL ;
     }
@@ -49,7 +152,7 @@ const char *basic_parse_int(const char *line, int *value, basic_err_t *err)
         line++ ;
     }
 
-    while (isdigit(*line)) {
+    while (isdigit((int)*line)) {
         digit = true ;
         parsebuffer[index++] = *line++ ;
     }
@@ -117,25 +220,34 @@ static basic_value_t *create_string_value_keep(char *v)
     return ret;
 }
 
-const char *basic_value_to_string(basic_value_t *value)
+const bool value_to_string(uint32_t str, basic_value_t *value)
 {
-    const char *ret ;
+    bool ret = true;
 
     if (value->type_ == BASIC_VALUE_TYPE_STRING) {
-        sprintf(parsebuffer, "\"%s\"", value->value.svalue_);
-        ret = parsebuffer ;
+        ret = str_add_str(str, value->value.svalue_);
     }
-    else {
+    else 
+    {
         if ((value->value.nvalue_ - (int)value->value.nvalue_) < 1e-6) {
-            sprintf(parsebuffer, "%d", (int)value->value.nvalue_) ;
+            ret = str_add_int(str, (int)value->value.nvalue_);
         }
         else {
-            sprintf(parsebuffer, "%f", value->value.nvalue_);
+            ret = str_add_double(str, value->value.nvalue_);
         }
-        ret = parsebuffer ;
     }
 
     return ret;
+}
+
+static basic_var_t* get_var_from_index(uint32_t index)
+{
+    for (basic_var_t* var = vars; var != NULL; var = var->next_) {
+        if (var->index_ == index)
+            return var;
+    }
+
+    return NULL;
 }
 
 bool basic_var_get(const char *name, uint32_t *index, basic_err_t *err)
@@ -197,92 +309,49 @@ bool basic_var_destroy(uint32_t index)
 
 const char *basic_var_get_name(uint32_t index)
 {
-    for(basic_var_t *var = vars ; var != NULL ; var = var->next_) {
-        if (var->index_ == index) {
-            return var->name_ ;
-        }
-    }
+    basic_var_t* var = get_var_from_index(index);
+    if (var != NULL)
+        return var->name_;
 
     return NULL ;
 }
 
-bool basic_var_set_value(uint32_t index, basic_value_t *value, basic_err_t *err)
+bool basic_var_set_value(uint32_t index, basic_value_t* value, basic_err_t* err)
 {
-    for(basic_var_t *var = vars ; var != NULL ; var = var->next_) {
-        if (var->index_ == index) {
-            if (var->name_[strlen(var->name_) - 1] == '$') {
-                if (value->type_ != BASIC_VALUE_TYPE_STRING) {
-                    *err = BASIC_ERR_TYPE_MISMATCH ;
-                    return false ;
-                }
-            }
-            else {
-                if (value->type_ != BASIC_VALUE_TYPE_NUMBER) {
-                    *err = BASIC_ERR_TYPE_MISMATCH ;
-                    return false ;
-                }
-            }
-
-            if (var->value_ != NULL) {
-                basic_destroy_value(var->value_) ;
-            }
-            var->value_ = value ;
-            return true ;
-        }
-    }
-
-    *err = BASIC_ERR_NO_SUCH_VARIABLE ;
-    return false ;
-}
-
-basic_value_t *basic_var_get_value(uint32_t index)
-{
-    for(basic_var_t *var = vars ; var != NULL ; var = var->next_) {
-        if (var->index_ == index) {
-            return var->value_ ;
-        }
-    }
-
-    return NULL ;
-}
-
-basic_var_t *get_var_from_index(uint32_t index)
-{
-    for(basic_var_t *var = vars ; var != NULL ; var = var->next_) {
-        if (var->index_ == index) {
-            return var ;
-        }
-    }
-
-    return NULL ;
-}
-
-bool basic_var_validate_array(uint32_t index, int dimcnt, int *dims, basic_err_t *err)
-{
-    basic_var_t *var = get_var_from_index(index) ;
+    basic_var_t* var = get_var_from_index(index);
     if (var == NULL) {
-        *err = BASIC_ERR_NO_SUCH_VARIABLE ;
-        return false ;
+        *err = BASIC_ERR_NO_SUCH_VARIABLE;
+        return false;
     }
 
-    if (var->dimcnt_ == 0) {
-        *err = BASIC_ERR_NOT_ARRAY ;
-        return false ;
-    }    
-
-    if (var->dimcnt_ != dimcnt) {
-        *err = BASIC_ERR_DIM_MISMATCH ;
-        return false ;
+    if (var->name_[strlen(var->name_) - 1] == '$') {
+        if (value->type_ != BASIC_VALUE_TYPE_STRING) {
+            *err = BASIC_ERR_TYPE_MISMATCH;
+            return false;
+        }
     }
-
-    for(int i = 0 ; i < dimcnt ; i++) {
-        if (dims[i] > var->dims_[i]) {
-            *err = BASIC_ERR_INVALID_DIMENSION ;
+    else {
+        if (value->type_ != BASIC_VALUE_TYPE_NUMBER) {
+            *err = BASIC_ERR_TYPE_MISMATCH;
             return false;
         }
     }
 
-    return true ;
+    if (var->value_ != NULL) {
+        basic_destroy_value(var->value_);
+    }
+    var->value_ = value;
+    return true;
+}
+
+basic_value_t *basic_var_get_value(uint32_t index)
+{
+    basic_var_t* var = get_var_from_index(index);
+    if (var == NULL) {
+        return NULL;
+    }
+
+    return var->value_;
 }
 
 int basic_var_get_dim_count(uint32_t index, basic_err_t *err)
@@ -298,7 +367,26 @@ int basic_var_get_dim_count(uint32_t index, basic_err_t *err)
         return -1 ;
     }
 
+    *err = BASIC_ERR_NONE;
     return var->dimcnt_ ;
+}
+
+bool basic_var_get_dims(uint32_t index, uint32_t* dimcnt, uint32_t* dims, basic_err_t* err)
+{
+    basic_var_t* var = get_var_from_index(index);
+    if (var == NULL) {
+        *err = BASIC_ERR_NO_SUCH_VARIABLE;
+        return -1;
+    }
+
+    if (var->dimcnt_ == 0) {
+        *err = BASIC_ERR_NOT_ARRAY;
+        return -1;
+    }
+
+    *dimcnt = var->dimcnt_;
+    memcpy(dims, var->dims_, sizeof(uint32_t) * var->dimcnt_);
+    return true;
 }
 
 static int compute_index(int dimcnt, int *maxdims, int *dims)
@@ -340,6 +428,8 @@ basic_value_t *basic_var_get_array_value(uint32_t index, int *dims, basic_err_t 
     else {
         ret = create_number_value(var->darray_[ain]);
     }
+
+    return ret;
 }
 
 bool basic_var_set_array_value(uint32_t index, basic_value_t *value, int *dims, basic_err_t *err)
@@ -368,7 +458,11 @@ bool basic_var_set_array_value(uint32_t index, basic_value_t *value, int *dims, 
             return false ;
         }
 
+#ifdef DESKTOP
         var->sarray_[ain] = _strdup(value->value.svalue_) ;
+#else
+        var->sarray_[ain] = strdup(value->value.svalue_) ;
+#endif
         if (var->sarray_[ain] == NULL) {
             *err = BASIC_ERR_OUT_OF_MEMORY ;
             return false ;
@@ -418,6 +512,7 @@ bool basic_var_add_dims(uint32_t index, uint32_t dimcnt, int *dims, basic_err_t 
     }
 
     if (isString(var)) {
+        var->darray_ = NULL;
         var->sarray_ = (char **)malloc(sizeof(char *) * total) ;
         if (var->sarray_ == NULL) {
             var->dimcnt_ = 0 ;
@@ -429,8 +524,9 @@ bool basic_var_add_dims(uint32_t index, uint32_t dimcnt, int *dims, basic_err_t 
         }
     }    
     else {
+        var->sarray_ = NULL;
         var->darray_ = (double *)malloc(sizeof(double) * total) ;
-        if (var->sarray_ == NULL) {
+        if (var->darray_ == NULL) {
             var->dimcnt_ = 0 ;
             free(var->dims_);
             return false;
@@ -492,7 +588,7 @@ static basic_operand_t *create_const_operand(basic_value_t *value)
     return ret ;
 }
 
-static basic_operand_t *create_var_operand(uint32_t varindex, int dimcnt, int *dims)
+static basic_operand_t *create_var_operand(uint32_t varindex, int dimcnt, uint32_t *dims)
 {
     basic_operand_t *ret = (basic_operand_t *)malloc(sizeof(basic_operand_t)) ;
     if (ret == NULL)
@@ -510,11 +606,72 @@ static basic_operand_t *create_var_operand(uint32_t varindex, int dimcnt, int *d
             free(ret) ;
             return NULL ;
         }
+        memcpy(ret->operand_.var_.dims_, dims, sizeof(int) * dimcnt);
     }
     return ret ;    
 }
 
-static const char *parse_operand(const char *line, basic_operand_t **operand, basic_err_t *err)
+static basic_operand_t* create_fun_operand(function_table_t* fun)
+{
+    basic_operand_t* ret = (basic_operand_t*)malloc(sizeof(basic_operand_t));
+    if (ret == NULL)
+        return NULL;
+
+    ret->type_ = BASIC_OPERAND_TYPE_FUNCTION;
+    ret->operand_.function_args_.func_ = fun;
+    ret->operand_.function_args_.args_ = (basic_operand_t**)malloc(sizeof(basic_operand_t*) * fun->num_args_);
+    if (ret->operand_.function_args_.args_ == NULL) {
+        free(ret);
+        return NULL;
+    }
+    memset(ret->operand_.function_args_.args_, 0, sizeof(basic_operand_t*) * fun->num_args_);
+    return ret;
+}
+
+static function_table_t* lookup_function(const char* name)
+{
+    for (int i = 0; i < sizeof(functions) / sizeof(functions[0]); i++) {
+        if (_stricmp(name, functions[i].string_) == 0) {
+            return &functions[i];
+        }
+    }
+
+    return NULL;
+}
+
+static basic_value_t* func_rnd(int count, basic_value_t** args, basic_err_t* err)
+{
+    if (count != 1) {
+        *err = BASIC_ERR_BAD_ARG_COUNT;
+        return NULL;
+    }
+
+    basic_value_t* v = args[0];
+    if (v->type_ != BASIC_VALUE_TYPE_NUMBER) {
+        *err = BASIC_ERR_TYPE_MISMATCH;
+        return NULL;
+    }
+
+    return create_number_value(0.5);
+}
+
+static basic_value_t* func_int(int count, basic_value_t** args, basic_err_t *err)
+{
+    if (count != 1) {
+        *err = BASIC_ERR_BAD_ARG_COUNT;
+        return NULL;
+    }
+
+    basic_value_t* v = args[0];
+    if (v->type_ != BASIC_VALUE_TYPE_NUMBER) {
+        *err = BASIC_ERR_TYPE_MISMATCH;
+        return NULL;
+    }
+
+    return create_number_value((int)v->value.nvalue_);
+}
+
+static const char *parse_operand(expr_ctxt_t *ctxt, const char *line, basic_operand_t **operand, basic_err_t *err)
 {
     int bind = 0 ;
 
@@ -523,55 +680,49 @@ static const char *parse_operand(const char *line, basic_operand_t **operand, ba
         //
         // Parse a constant number value
         //
+        while (isdigit((uint8_t)*line) && bind < sizeof(ctxt->parsebuffer)) {
+            ctxt->parsebuffer[bind++] = *line++ ;
 
-        while (isdigit((uint8_t)*line) && bind < sizeof(parsebuffer)) {
-            parsebuffer[bind++] = *line++ ;
-        }
-
-        if (bind == sizeof(parsebuffer)) {
-            *err = BASIC_ERR_NUMBER_TOO_LONG ;
-            return NULL ;
+            if (bind == BASIC_PARSE_BUFFER_LENGTH) {
+                *err = BASIC_ERR_NUMBER_TOO_LONG;
+                return NULL;
+            }
         }
 
         if (*line == '.') {
-            parsebuffer[bind++] = *line++ ;            
+            ctxt->parsebuffer[bind++] = *line++ ;       
+            if (bind == BASIC_PARSE_BUFFER_LENGTH) {
+                *err = BASIC_ERR_NUMBER_TOO_LONG;
+                return NULL;
+            }
         }
 
-        if (bind == sizeof(parsebuffer)) {
-            *err = BASIC_ERR_NUMBER_TOO_LONG ;
-            return NULL ;
-        }
-
-        while (isdigit((uint8_t)*line) && bind < sizeof(parsebuffer)) {
-            parsebuffer[bind++] = *line++ ;
-        }
-
-        if (bind == sizeof(parsebuffer)) {
-            *err = BASIC_ERR_NUMBER_TOO_LONG ;
-            return NULL ;
+        while (isdigit((uint8_t)*line) && bind < BASIC_PARSE_BUFFER_LENGTH) {
+            ctxt->parsebuffer[bind++] = *line++ ;
+            if (bind == BASIC_PARSE_BUFFER_LENGTH) {
+                *err = BASIC_ERR_NUMBER_TOO_LONG;
+                return NULL;
+            }
         }
 
         if (*line == 'e' || *line == 'E') {
-            parsebuffer[bind++] = *line++ ;   
+            ctxt->parsebuffer[bind++] = *line++ ;   
+            if (bind == BASIC_PARSE_BUFFER_LENGTH) {
+                *err = BASIC_ERR_NUMBER_TOO_LONG;
+                return NULL;
+            }
         }
 
-        if (bind == sizeof(parsebuffer)) {
-            *err = BASIC_ERR_NUMBER_TOO_LONG ;
-            return NULL ;
+        while (isdigit((uint8_t)*line) && bind < BASIC_PARSE_BUFFER_LENGTH) {
+            ctxt->parsebuffer[bind++] = *line++ ;
+            if (bind == BASIC_PARSE_BUFFER_LENGTH) {
+                *err = BASIC_ERR_NUMBER_TOO_LONG;
+                return NULL;
+            }
         }
+        ctxt->parsebuffer[bind] = '\0' ;
 
-        while (isdigit((uint8_t)*line) && bind < sizeof(parsebuffer)) {
-            parsebuffer[bind++] = *line++ ;
-        }
-
-        if (bind == sizeof(parsebuffer)) {
-            *err = BASIC_ERR_NUMBER_TOO_LONG ;
-            return NULL ;
-        }
-
-        parsebuffer[bind] = '\0' ;
-
-        double fv = atof(parsebuffer) ;
+        double fv = atof(ctxt->parsebuffer) ;
         basic_value_t *value = create_number_value(fv);
         if (value == NULL) {
             *err = BASIC_ERR_OUT_OF_MEMORY ;
@@ -582,13 +733,12 @@ static const char *parse_operand(const char *line, basic_operand_t **operand, ba
     }
     else if (*line == '"') {
         line++ ;
-        while (*line && *line != '"' && bind < sizeof(parsebuffer)) {
-            parsebuffer[bind++] = *line++ ;
-        }
-
-        if (bind == sizeof(parsebuffer)) {
-            *err = BASIC_ERR_STRING_TOO_LONG ;
-            return NULL ;
+        while (*line && *line != '"' && bind < sizeof(ctxt->parsebuffer)) {
+            ctxt->parsebuffer[bind++] = *line++ ;
+            if (bind == BASIC_PARSE_BUFFER_LENGTH) {
+                *err = BASIC_ERR_STRING_TOO_LONG;
+                return NULL;
+            }
         }
 
         if (*line != '"') {
@@ -597,9 +747,9 @@ static const char *parse_operand(const char *line, basic_operand_t **operand, ba
         }
 
         line++ ;
-        parsebuffer[bind] = '\0' ;
+        ctxt->parsebuffer[bind] = '\0' ;
 
-        basic_value_t *value = create_string_value(parsebuffer) ;
+        basic_value_t *value = create_string_value(ctxt->parsebuffer) ;
         if (value == NULL) {
             *err = BASIC_ERR_OUT_OF_MEMORY ;
             return NULL ;
@@ -608,53 +758,57 @@ static const char *parse_operand(const char *line, basic_operand_t **operand, ba
         *operand = create_const_operand(value) ;
     }
     else if (isalpha((uint8_t)*line)) {
-        while (*line && isalpha((uint8_t)*line) && bind < sizeof(parsebuffer)) {
-            parsebuffer[bind++] = *line++ ;
-        }
-
-        if (bind > BASIC_MAX_VARIABLE_LENGTH) {
-            *err = BASIC_ERR_VARIABLE_TOO_LONG ;
-            return NULL ;
-        }
-
-        line = skipSpaces(line) ;
-        int dimcnt = 0 ;
-        int dims[BASIC_MAX_DIMS]  ;
-
-        if (*line == '(') {
-            line++ ;
-            while (true) {
-                if (dimcnt == BASIC_MAX_DIMS) {
-                    *err = BASIC_ERR_TOO_MANY_DIMS ;
-                    return NULL ;
-                }
-
-                if (!basic_parse_int(line, &dims[dimcnt], err)) {
-                    return NULL ;
-                }
-
-                line = skipSpaces(line) ;
-                if (*line == ')') {
-                    line++ ;
-                    break ;
-                }
-                else if (*line == ',') {
-                    line++ ;
-                }
-                else {
-                    *err = BASIC_ERR_INVALID_CHAR ;
-                    return NULL ;
-                }
+        while (*line && isalpha((uint8_t)*line) && bind < BASIC_PARSE_BUFFER_LENGTH) {
+            ctxt->parsebuffer[bind++] = *line++ ;
+            if (bind > BASIC_MAX_VARIABLE_LENGTH) {
+                *err = BASIC_ERR_VARIABLE_TOO_LONG;
+                return NULL;
             }
         }
+        ctxt->parsebuffer[bind] = '\0';
 
-        uint32_t index ;
-        parsebuffer[bind] = '\0' ;
-        if (!basic_var_get(parsebuffer, &index, err)) {
-            return NULL ;
+        function_table_t* fun = lookup_function(ctxt->parsebuffer);
+        if (fun) {
+            line = skipSpaces(line);
+            if (*line != '(') {
+                *err = BASIC_ERR_EXPECTED_OPENPAREN;
+                return NULL;
+            }
+            line++;
+            *operand = create_fun_operand(fun);
+            if (*operand == NULL) {
+                *err = BASIC_ERR_OUT_OF_MEMORY;
+                return NULL;
+            }
+
+            for (int i = 0; i < fun->num_args_; i++) {
+                line = parse_operand(ctxt, line, &(*operand)->operand_.function_args_.args_[i], err);
+                if (line == NULL)
+                    return NULL;
+            }
         }
+        else {
+            //
+            // This is a variable
+            //
+            line = skipSpaces(line);
+            int dimcnt = 0;
+            uint32_t dims[BASIC_MAX_DIMS];
 
-        *operand = create_var_operand(index, dimcnt, dims);
+            if (*line == '(') {
+                line = basic_parse_dims_expr(line, &dimcnt, dims, err);
+                if (line == NULL)
+                    return NULL;
+            }
+
+            uint32_t index;
+
+            if (!basic_var_get(ctxt->parsebuffer, &index, err)) {
+                return NULL;
+            }
+
+            *operand = create_var_operand(index, dimcnt, dims);
+        }
     }
 
     return line ;
@@ -692,19 +846,29 @@ static uint32_t dimvar_to_str(basic_var_args_t *var)
         return STR_INVALID ;
     }
 
-    for(int i = 0 ; i < var->dimcnt_ ; i++) {
+    for (int i = 0; i < var->dimcnt_; i++) {
         if (i != 0) {
             if (!str_add_str(str, ",")) {
-                str_destroy(str) ;
-                return STR_INVALID ;
-            }            
+                str_destroy(str);
+                return STR_INVALID;
+            }
         }
+        uint32_t h = basic_expr_to_string(var->dims_[i]);
+        if (!str_add_handle(str, h)) {
+            str_destroy(str);
+            str_destroy(h);
+            return STR_INVALID;
+        }
+
+        str_destroy(h);
     }
 
     if (!str_add_str(str, ")")) {
         str_destroy(str) ;
         return STR_INVALID ;
     }
+
+    return str;
 }
 
 static bool basic_oper_to_string(basic_operand_t *oper, uint32_t str)
@@ -715,9 +879,8 @@ static bool basic_oper_to_string(basic_operand_t *oper, uint32_t str)
     switch(oper->type_)
     {
         case BASIC_OPERAND_TYPE_CONST:
-            v = basic_value_to_string(oper->operand_.const_value_);
-            if (!str_add_str(str, v))
-                ret = false ;
+            if (!value_to_string(str, oper->operand_.const_value_))
+                ret = false;
             break;
 
         case BASIC_OPERAND_TYPE_OPERATOR:
@@ -738,7 +901,6 @@ static bool basic_oper_to_string(basic_operand_t *oper, uint32_t str)
             break;
 
         case BASIC_OPERAND_TYPE_VAR:
-            // TODO: deal with arrays
             if (oper->operand_.var_.dimcnt_ > 0) {
                 int strh = dimvar_to_str(&oper->operand_.var_) ;
                 if (strh == STR_INVALID)
@@ -761,51 +923,46 @@ static bool basic_oper_to_string(basic_operand_t *oper, uint32_t str)
     return ret;
 }
 
-static basic_operand_t *operand_stack[64] ;
-static int operand_top = 0 ;
 
-static basic_operand_t *operator_stack[64] ;
-static int operator_top = 0 ;
-
-static bool push_operand(basic_operand_t *o)
+static bool push_operand(expr_ctxt_t *ctxt, basic_operand_t *o)
 {
     assert(o != NULL) ;
 
-    if (operand_top == sizeof(operand_stack)/sizeof(operand_stack[0])) {
+    if (ctxt->operand_top_ == BASIC_MAX_EXPR_DEPTH)
         return false;
-    }
-    operand_stack[operand_top++]  = o ;
+
+    ctxt->operands_[ctxt->operand_top_++]  = o ;
     return true ;
 }
 
-static basic_operand_t *pop_operand()
+static basic_operand_t *pop_operand(expr_ctxt_t* ctxt)
 {
-    assert(operand_top != 0);
-    return operand_stack[--operand_top] ;
+    assert(ctxt->operand_top_ != 0);
+    return ctxt->operands_[--ctxt->operand_top_] ;
 }
 
-static bool push_operator(basic_operand_t *o)
+static bool push_operator(expr_ctxt_t* ctxt, basic_operand_t *o)
 {
     assert(o != NULL) ;
 
     assert(o->type_ == BASIC_OPERAND_TYPE_OPERATOR);
-    if (operator_top == sizeof(operator_stack)/sizeof(operator_stack[0])) {
+    if (ctxt->operator_top_ == BASIC_MAX_EXPR_DEPTH)
         return false;
-    }
-    operator_stack[operator_top++] = o ;
+
+    ctxt->operators_[ctxt->operator_top_++] = o ;
     return true ;
 }
 
-static basic_operand_t *pop_operator()
+static basic_operand_t *pop_operator(expr_ctxt_t* ctxt)
 {
-    assert(operator_top != 0) ;
-    return operator_stack[--operator_top] ;
+    assert(ctxt->operator_top_ != 0) ;
+    return ctxt->operators_[--ctxt->operator_top_] ;
 }
 
-static basic_operand_t *peek_operator()
+static basic_operand_t *peek_operator(expr_ctxt_t* ctxt)
 {
-    assert(operator_top != 0) ;
-    return operator_stack[operator_top - 1] ;    
+    assert(ctxt->operator_top_ != 0) ;
+    return ctxt->operators_[ctxt->operator_top_ - 1] ;    
 }
 
 static basic_operand_t *createOperator(operator_table_t *t)
@@ -819,27 +976,27 @@ static basic_operand_t *createOperator(operator_table_t *t)
     return ret;
 }
 
-static void reduce()
+static void reduce(expr_ctxt_t *ctxt)
 {
-    basic_operand_t *op1 = pop_operator() ;
+    basic_operand_t *op1 = pop_operator(ctxt) ;
     assert(op1->type_ == BASIC_OPERAND_TYPE_OPERATOR) ;
 
-    op1->operand_.operator_args_.left_ = pop_operand() ;
-    op1->operand_.operator_args_.right_ = pop_operand() ;
-    push_operand(op1);
+    op1->operand_.operator_args_.left_ = pop_operand(ctxt) ;
+    op1->operand_.operator_args_.right_ = pop_operand(ctxt) ;
+    push_operand(ctxt, op1);
 }
 
-static const char *parse_expr(const char *line, basic_operand_t **ret, basic_err_t *err)
+static const char *parse_expr(expr_ctxt_t *ctxt, const char *line, basic_operand_t **ret, basic_err_t *err)
 {
     basic_operand_t *operand1, *operand2, *op1, *op2 ;
     operator_table_t *o1, *o2 ;
 
-    line = parse_operand(line, &operand1, err) ;
+    line = parse_operand(ctxt, line, &operand1, err) ;
     if (line == NULL) {
         return NULL ;
     }
 
-    if (!push_operand(operand1)) {
+    if (!push_operand(ctxt, operand1)) {
         *err = BASIC_ERR_TOO_COMPLEX;
         return NULL ;
     }
@@ -847,7 +1004,7 @@ static const char *parse_expr(const char *line, basic_operand_t **ret, basic_err
     line = parse_operator(line, &o1, err) ;
     if (*err != BASIC_ERR_NONE) {
         *err = BASIC_ERR_NONE ;
-        *ret = pop_operand() ;
+        *ret = pop_operand(ctxt) ;
         return line ;
     }
 
@@ -857,31 +1014,31 @@ static const char *parse_expr(const char *line, basic_operand_t **ret, basic_err
         return NULL ;
     }
 
-    if (!push_operator(op1)) {
+    if (!push_operator(ctxt, op1)) {
         *err = BASIC_ERR_TOO_COMPLEX;
         return NULL ;
     }
 
     while (true)
     {
-        line = parse_operand(line, &operand2, err) ;
+        line = parse_operand(ctxt, line, &operand2, err) ;
         if (line == NULL) {
             return NULL ;
         }
 
-        if (!push_operand(operand2)) {
+        if (!push_operand(ctxt, operand2)) {
             *err = BASIC_ERR_TOO_COMPLEX;
             return NULL ;
         }
 
         line = parse_operator(line, &o2, err) ;
         if (*err != BASIC_ERR_NONE) {
-            while (operator_top > 0) {
-                reduce() ;
+            while (ctxt->operator_top_ > 0) {
+                reduce(ctxt) ;
             }
 
             *err = BASIC_ERR_NONE ;
-            *ret = pop_operand();
+            *ret = pop_operand(ctxt);
             return line ;
         }
 
@@ -891,16 +1048,16 @@ static const char *parse_expr(const char *line, basic_operand_t **ret, basic_err
             return NULL ;
         }
 
-        while (operator_top > 0) {
-            op1 = peek_operator() ;
+        while (ctxt->operator_top_ > 0) {
+            op1 = peek_operator(ctxt) ;
             assert(op1->type_ == BASIC_OPERAND_TYPE_OPERATOR);
             if (op1->operand_.operator_args_.operator_->prec_ > op2->operand_.operator_args_.operator_->prec_)
                 break; 
 
-            reduce() ;
+            reduce(ctxt) ;
         }
 
-        push_operator(op2);
+        push_operator(ctxt, op2);
     }
 
     return NULL;
@@ -909,11 +1066,20 @@ static const char *parse_expr(const char *line, basic_operand_t **ret, basic_err
 const char *basic_parse_expr(const char *line, uint32_t *index, basic_err_t *err)
 {
     basic_operand_t *op ;
+    expr_ctxt_t* ctxt;
 
-    operand_top = 0 ;
-    operator_top = 0 ;
+    ctxt = (expr_ctxt_t*)malloc(sizeof(expr_ctxt_t));
+    if (ctxt == NULL) {
+        *err = BASIC_ERR_OUT_OF_MEMORY;
+        return NULL;
+    }
 
-    line = parse_expr(line, &op, err);
+    ctxt->operand_top_ = 0;
+    ctxt->operator_top_ = 0;
+
+    line = parse_expr(ctxt, line, &op, err);
+    free(ctxt);
+
     if (op == NULL)
         return NULL ;
 
@@ -1102,6 +1268,7 @@ static basic_value_t *eval_operator(operator_table_t *oper, basic_operand_t *lef
 static basic_value_t *eval_node(basic_operand_t *op, basic_err_t *err)
 {
     basic_value_t *ret = NULL ;
+    int dims[BASIC_MAX_DIMS];
 
     switch(op->type_)
     {
@@ -1123,7 +1290,21 @@ static basic_value_t *eval_node(basic_operand_t *op, basic_err_t *err)
                     // We create a new value here since the storage is just the values and not a
                     // basic_value_t object.
                     //
-                    ret = basic_var_get_array_value(op->operand_.var_.varindex_, op->operand_.var_.dims_, err) ;
+                    for (int i = 0; i < op->operand_.var_.dimcnt_; i++) {
+                        uint32_t dimexpr = op->operand_.var_.dims_[i];
+                        basic_value_t *dimval = basic_eval_expr(dimexpr, err);
+                        if (dimval == NULL)
+                            return NULL;
+
+                        if (dimval->type_ == BASIC_VALUE_TYPE_STRING) {
+                            *err = BASIC_ERR_TYPE_MISMATCH;
+                            return NULL;
+                        }
+
+                        dims[i] = (int)dimval->value.nvalue_;
+                    }
+
+                    ret = basic_var_get_array_value(op->operand_.var_.varindex_, dims, err) ;
                 }
             }
             break; 
@@ -1146,6 +1327,9 @@ uint32_t basic_expr_to_string(uint32_t index)
     assert(expr != NULL) ;
 
     uint32_t ret = str_create() ;
+    if (ret == STR_INVALID)
+        return STR_INVALID;
+
     if (!basic_oper_to_string(expr->top_, ret)) {
         str_destroy(ret);
         return STR_INVALID ;
@@ -1153,3 +1337,15 @@ uint32_t basic_expr_to_string(uint32_t index)
 
     return ret ;
 }
+
+#ifdef _DUMP_EXPRS_
+void basic_dump_exprs()
+{
+    for (basic_expr_t* expr = exprs; expr != NULL; expr = expr->next_) {
+        uint32_t exprhand = basic_expr_to_string(expr->index_);
+        const char* exprstr = str_value(exprhand);
+        printf("%d: '%s'\n", expr->index_, exprstr);
+        str_destroy(exprhand);
+    }
+}
+#endif

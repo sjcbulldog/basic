@@ -136,6 +136,13 @@
     <ClCompile Include="main.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\source\basic\basiccfg.h" />
+    <ClInclude Include="..\source\basic\basicerr.h" />
+    <ClInclude Include="..\source\basic\basicexpr.h" />
+    <ClInclude Include="..\source\basic\basicexprint.h" />
+    <ClInclude Include="..\source\basic\basicline.h" />
+    <ClInclude Include="..\source\basic\basicproc.h" />
+    <ClInclude Include="..\source\basic\mystr.h" />
     <ClInclude Include="cy_result.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

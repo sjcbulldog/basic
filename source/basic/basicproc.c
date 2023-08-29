@@ -12,6 +12,7 @@
 
 #ifndef DESKTOP
 #include <ff.h>
+#define _stricmp strcasecmp
 #endif
 
 static const char *prompt = "Basic06> ";
@@ -45,6 +46,7 @@ static token_table_t tokens[] =
 
 static char linebuf[256] ;
 static char other[256] ;
+static char msg[128];
 
 const char *basic_token_to_str(uint8_t token)
 {
@@ -54,18 +56,6 @@ const char *basic_token_to_str(uint8_t token)
     }
 
     return "!ERROR!" ;
-}
-
-static const char *parseInteger(const char *line, int *value)
-{
-    *value = 0 ;
-
-    while (isdigit((uint8_t)*line)) {
-        *value = *value * 10 + *line - '0' ;
-        line++ ;
-    }
-
-    return line ;
 }
 
 static basic_line_t *create_line()
@@ -89,7 +79,7 @@ void basic_destroy_line(basic_line_t *line)
     if (line->tokens_ != NULL) {
     	int index = 1 ;
     	while (index < line->count_) {
-    		if (line->tokens_[index] == BTOKEN_VAR) {
+    		if (line->tokens_[index] == BTOKEN_VAR || line->tokens_[index] == BTOKEN_ARRAY) {
     			uint32_t var = getU32(line, index + 1);
     			index += 5 ;
     			basic_var_destroy(var);
@@ -414,7 +404,7 @@ static const char *parse_let(basic_line_t *bline, const char *line, basic_err_t 
 {
     uint32_t varindex, exprindex ;
     int dimcnt = 0 ;
-    int dims[BASIC_MAX_DIMS] ;
+    uint32_t dims[BASIC_MAX_DIMS] ;
 
     line = parse_varname(line, &varindex, err) ;
     if (line == NULL) {
@@ -426,6 +416,11 @@ static const char *parse_let(basic_line_t *bline, const char *line, basic_err_t 
         //
         // This is an array
         //
+        line = basic_parse_dims_expr(line, &dimcnt, dims, err);
+        if (line == NULL)
+            return NULL;
+
+        line = skipSpaces(line);
     }
 
     if (*line != '=') {
@@ -450,8 +445,12 @@ static const char *parse_let(basic_line_t *bline, const char *line, basic_err_t 
         //
         // We need to confirm that the number of dimensions is avlid
         //
+        int tcnt = basic_var_get_dim_count(varindex, err);
+        if (tcnt == -1)
+            return NULL;
 
-        if (!basic_var_validate_array(varindex, dimcnt, dims, err)) {
+        if (tcnt != dimcnt) {
+            *err = BASIC_ERR_DIM_MISMATCH;
             return NULL ;
         }
 
@@ -466,6 +465,11 @@ static const char *parse_let(basic_line_t *bline, const char *line, basic_err_t 
         }
 
         for(int i = 0 ; i < dimcnt ; i++) {
+            if (!add_token(bline, BTOKEN_EXPR)) {
+                *err = BASIC_ERR_OUT_OF_MEMORY;
+                return NULL;
+            }
+
             if (!add_uint32(bline, dims[i])) {
                 *err = BASIC_ERR_OUT_OF_MEMORY ;
                 return NULL ;
@@ -552,6 +556,7 @@ static const char *parse_loadsave(basic_line_t *bline, const char *line, basic_e
     return line ;    
 }
 
+
 static const char *parse_dim(basic_line_t *bline, const char *line, basic_err_t *err)
 {
     uint32_t index ;
@@ -564,48 +569,23 @@ static const char *parse_dim(basic_line_t *bline, const char *line, basic_err_t 
             return NULL ;
         }
 
-        line = skipSpaces(line) ;
-        if (*line != '(') {
-            *err = BASIC_ERR_EXPECTED_OPENPAREN ;
-            return NULL ;
-        }
-        line++ ;
-        while (true) {
-            if (dimcnt == BASIC_MAX_DIMS) {
-                *err = BASIC_ERR_TOO_MANY_DIMS ;
-                return NULL ;
-            }
-            line = basic_parse_int(line, &dims[dimcnt], err) ;
-            if (line == NULL)
-                return NULL ;
-
-            if (dims[dimcnt] < 0 || dims[dimcnt] > BASIC_MAX_SINGLE_DIM) {
-                *err = BASIC_ERR_INVALID_DIMENSION ;
-                return NULL ;
-            }
-
-            dimcnt++ ;
-
-            line = skipSpaces(line) ;
-
-            if (*line == ',') {
-                // More dimensions
-                line++ ;
-            }
-            else if (*line == ')') {
-                // End of the dimensions
-                line++;
-                break;
-            }
-            else {
-                *err = BASIC_ERR_INVALID_CHAR ;
-                return NULL ;
-            }
-        }
+        line = basic_parse_dims_const(line, &dimcnt, dims, err);
+        if (line == NULL)
+            return NULL;
 
         // Now we have a complete value
         if (!basic_var_add_dims(index, dimcnt, dims, err)) {
             return NULL ;
+        }
+
+        if (!add_token(bline, BTOKEN_VAR)) {
+            *err = BASIC_ERR_OUT_OF_MEMORY;
+            return NULL;
+        }
+
+        if (!add_uint32(bline, index)) {
+            *err = BASIC_ERR_OUT_OF_MEMORY;
+            return NULL;
         }
 
         line = skipSpaces(line) ;
@@ -681,13 +661,17 @@ static const char *tokenize_one(const char *line, basic_line_t **bline, basic_er
             ret = NULL ;
         }
     } else if (token == BTOKEN_REM) {
+#ifdef DESKTOP
         ret->extra_ = _strdup(line) ;
+#else
+        ret->extra_ = strdup(line) ;
+#endif
         if (ret->extra_ == NULL) {
             *err = BASIC_ERR_OUT_OF_MEMORY ;
             basic_destroy_line(ret) ;
             ret = NULL ;
         }
-        int len = strlen(ret->extra_);
+        int len = (int)strlen(ret->extra_);
         if (ret->extra_[len - 1] == '\n') {
             ret->extra_[len - 1] = '\0' ;
         }
@@ -749,9 +733,24 @@ static const char *tokenize_one(const char *line, basic_line_t **bline, basic_er
             line = NULL ;
         }
     }
-
     return line ;
 }
+
+#ifdef _DUMP_TOKENS
+static void dump_tokens(basic_line_t* line, const char* text, int lineno)
+{
+    printf("%d:'", lineno);
+    while (*text && *text != '\n' && *text != ':') {
+        putchar(*text++);
+    }
+    printf("'\n");
+    printf("  %d:", line->count_);
+    for (int i = 0; i < line->count_; i++) {
+        printf(" %02x ", line->tokens_[i], line->tokens_[i]);
+    }
+    printf("\n");
+}
+#endif
 
 static basic_line_t *tokenize(const char *line, basic_err_t *err)
 {
@@ -770,11 +769,14 @@ static basic_line_t *tokenize(const char *line, basic_err_t *err)
 
     if (isdigit((uint8_t)(*line))) {
         // Starts with a line number
-        line = parseInteger(line, &lineno);
+        line = basic_parse_int(line, &lineno, err);
         line = skipSpaces(line) ;
     }
 
     while (true) {
+#ifdef _DUMP_TOKENS
+        const char* save = line;
+#endif
         if (first) {
             line = tokenize_one(line, &ret, err) ;
             if (line == NULL)
@@ -782,11 +784,19 @@ static basic_line_t *tokenize(const char *line, basic_err_t *err)
 
             ret->lineno_ = lineno ;
             first = false ;
+
+#ifdef _DUMP_TOKENS
+            dump_tokens(ret, save, lineno);
+#endif
         }
         else {
             line = tokenize_one(line, &child, err) ;
             if (line == NULL)
                 return NULL ;
+
+#ifdef _DUMP_TOKENS
+            dump_tokens(child, save, lineno);
+#endif
 
             if (last == NULL) {
                 ret->children_ = child ;
@@ -813,7 +823,7 @@ static basic_line_t *tokenize(const char *line, basic_err_t *err)
     return ret ;
 }
 
-static char msg[128] ;
+
 bool basic_line_proc(const char *line, basic_out_fn_t outfn)
 {
     bool rval = true ;
@@ -823,15 +833,14 @@ bool basic_line_proc(const char *line, basic_out_fn_t outfn)
     ret = tokenize(line, &code) ;
 
     if (code != BASIC_ERR_NONE) {
-        int len = strlen(line) ;
+        int len = (int)strlen(line) ;
 
         (*outfn)("Line: '", 7) ;
-        (*outfn)(msg, strlen(msg)) ;
         (*outfn)(line, len - 1);
         (*outfn)("'\n", 2);
 
         sprintf(msg, "Error code %d\n", code) ;
-        (*outfn)(msg, strlen(msg)) ;
+        (*outfn)(msg, (int)strlen(msg)) ;
 
         return false ;
     }
@@ -933,7 +942,7 @@ bool basic_proc_load(const char *filename, basic_err_t *err, basic_out_fn_t outf
 
 void basic_prompt(basic_out_fn_t outfn)
 {
-    (*outfn)(prompt, strlen(prompt)) ;
+    (*outfn)(prompt, (int)strlen(prompt)) ;
 }
 
 
