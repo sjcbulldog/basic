@@ -21,15 +21,13 @@ void basic_save(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
     UINT written ;
 
     *err = BASIC_ERR_NONE ;
-    assert(line->tokens_[1] == BTOKEN_EXPR) ;
-
     if (line->lineno_ != -1) {
         *err = BASIC_ERR_NOT_ALLOWED ;
         return ;
     }    
 
-    uint32_t expr = getU32(line, 2);
-    basic_value_t *value = basic_eval_expr(expr, err) ;
+    uint32_t expr = getU32(line, 1);
+    basic_value_t *value = basic_expr_eval(expr, err) ;
     if (value == NULL)
         return ;
 
@@ -81,17 +79,14 @@ void basic_save(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 
 void basic_load(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
-    assert(line->tokens_[1] == BTOKEN_EXPR) ;
-
     *err = BASIC_ERR_NONE ;
-
     if (line->lineno_ != -1) {
         *err = BASIC_ERR_NOT_ALLOWED ;
         return ;
     }
 
-    uint32_t expr = getU32(line, 2);
-    basic_value_t *value = basic_eval_expr(expr, err) ;
+    uint32_t expr = getU32(line, 1);
+    basic_value_t *value = basic_expr_eval(expr, err) ;
     if (value == NULL)
         return ;
 

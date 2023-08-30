@@ -36,7 +36,7 @@ typedef struct basic_var_args
 {
     uint32_t varindex_ ;
     int dimcnt_ ;
-    int *dims_ ;
+    basic_operand_t** dims_;
 } basic_var_args_t ;
 
 typedef struct function_table
@@ -68,7 +68,7 @@ typedef struct basic_var
     char name_[BASIC_MAX_VARIABLE_LENGTH] ;
     uint32_t index_ ;
     uint32_t dimcnt_ ;
-    int *dims_;
+    uint32_t *dims_;
     basic_value_t *value_ ;
     double *darray_ ;
     char **sarray_ ;
@@ -78,7 +78,7 @@ typedef struct basic_var
 typedef struct basic_expr
 {
     basic_operand_t *top_ ;
-    int index_ ;
+    uint32_t index_ ;
     struct basic_expr *next_ ;
 } basic_expr_t ;
 
@@ -89,4 +89,16 @@ typedef struct expr_ctxt
     basic_operand_t* operands_[BASIC_MAX_EXPR_DEPTH];
     basic_operand_t* operators_[BASIC_MAX_EXPR_DEPTH];
     char parsebuffer[BASIC_PARSE_BUFFER_LENGTH];
+    int argcnt_;
+    char** argnames_;
 } expr_ctxt_t;
+
+typedef struct basic_expr_user_fn
+{
+    uint32_t index_;
+    char* name_;
+    uint32_t argcnt_;
+    char** args_;
+    uint32_t expridx_;
+    struct expr_user_fn* next_;
+} basic_expr_user_fn_t ;

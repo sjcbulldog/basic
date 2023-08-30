@@ -31,69 +31,44 @@ static void putSpaces(basic_out_fn_t outfn, int count)
     }
 }
 
-static bool dimsToString(uint32_t str, basic_line_t* line, int *i, int dimcnt, int* dims)
-{
-    int index = *i;
-
-    if (!str_add_str(str, "("))
-        return false;
-
-    for (int i = 0; i < dimcnt; i++) {
-        assert(line->tokens_[index] == BTOKEN_EXPR);
-        index++;
-
-        uint32_t expr = getU32(line, index);
-        index += 4;
-
-        uint32_t exprstr = basic_expr_to_string(expr);
-        if (!str_add_handle(str, exprstr))
-            return false;
-
-        str_destroy(exprstr);
-    }
-
-    if (!str_add_str(str, ")"))
-        return false;
-
-    *i = index;
-    return true;
-}
-
 static bool dimToString(basic_line_t* line, uint32_t str)
 {
     int index = 1;
-    uint32_t dimcnt;
-    uint32_t dims[BASIC_MAX_DIMS];
-    basic_err_t err;
+    uint32_t dimcnt, varidx;
 
     while (index < line->count_)
     {
-        assert(line->tokens_[index] == BTOKEN_VAR);
-        index++;
+        if (index != 1) {
+            if (!str_add_str(str, ","))
+                return false;
+        }
 
-        uint32_t varidx = getU32(line, index);
+        varidx = getU32(line, index);
         index += 4;
 
         const char* varname = basic_var_get_name(varidx);
         if (varname == NULL)
             return false;
 
-        if (!basic_var_get_dims(varidx, &dimcnt, dims, &err))
-            return false;
-
         if (!str_add_str(str, varname))
             return false;
+
+        dimcnt = getU32(line, index);
+        index += 4;
 
         if (!str_add_str(str, "("))
             return false;
 
-        for (int i = 0; i < dimcnt; i++) {
+        for (uint32_t i = 0; i < dimcnt; i++) {
             if (i != 0) {
                 if (!str_add_str(str, ","))
                     return false;
             }
 
-            if (!str_add_int(str, dims[i]))
+            uint32_t tmp = getU32(line, index);
+            index += 4;
+
+            if (!str_add_int(str, tmp))
                 return false;
         }
 
@@ -104,45 +79,75 @@ static bool dimToString(basic_line_t* line, uint32_t str)
     return true;
 }
 
-static bool letToString(basic_line_t *line, uint32_t str)
+static bool letSimpleToString(basic_line_t* line, uint32_t str)
 {
-    int index = 6;
-    uint32_t var = getU32(line, 2);
-    const char* varname = basic_var_get_name(var);
+    uint32_t varidx = getU32(line, 1);
+    uint32_t expridx = getU32(line, 5);
 
-    if (line->tokens_[1] == BTOKEN_ARRAY) 
-    {
-        basic_err_t err;
-
-        int dims[BASIC_MAX_DIMS];
-        int dimcnt = basic_var_get_dim_count(var, &err);
-
-        if (dimcnt == -1)
-            return false;
-
-        if (!str_add_str(str, varname))
-            return false;
-
-        if (!dimsToString(str, line, &index, dimcnt, dims))
-            return false;
-    }
-    else if (line->tokens_[1] == BTOKEN_VAR)
-    {
-        if (!str_add_str(str, varname))
-            return false ;
-    }
-    else {
-        assert(false);
-    }
+    const char* varname = basic_var_get_name(varidx);
+    if (!str_add_str(str, varname))
+        return false;
 
     if (!str_add_str(str, "=")) {
-        return false ;
+        return false;
     }
 
-    assert(line->tokens_[index] == BTOKEN_EXPR);
-    index++;
+    uint32_t strh = basic_expr_to_string(expridx);
+    if (strh == STR_INVALID)
+    {
+        return false;
+    }
 
-    uint32_t strh = basic_expr_to_string(getU32(line, index)) ;
+    if (!str_add_handle(str, strh)) {
+        str_destroy(strh);
+        return false;
+    }
+    str_destroy(strh);
+    return true;
+}
+
+static bool letArrayToString(basic_line_t *line, uint32_t str)
+{
+    int index = 1;
+    uint32_t varidx = getU32(line, index);
+    index += 4;
+    const char* varname = basic_var_get_name(varidx);
+
+    if (!str_add_str(str, varname))
+        return false;
+
+    if (!str_add_str(str, "("))
+        return false;
+
+    uint32_t dimcnt = getU32(line, index);
+    index += 4;
+
+    for (uint32_t i = 0; i < dimcnt; i++) {
+        if (i != 0) {
+            if (!str_add_str(str, ","))
+                return false;
+        }
+
+        uint32_t dimexpr = getU32(line, index);
+        index += 4;
+
+        uint32_t strh = basic_expr_to_string(dimexpr);
+        if (strh == STR_INVALID)
+        {
+            return false;
+        }
+
+        if (!str_add_handle(str, strh)) {
+            str_destroy(strh);
+            return false;
+        }
+    }
+
+    if (!str_add_str(str, ")="))
+        return false;
+
+    uint32_t exprh = getU32(line, index);
+    uint32_t strh = basic_expr_to_string(exprh);
     if (strh == STR_INVALID) 
     {
         return false ;
@@ -157,20 +162,29 @@ static bool letToString(basic_line_t *line, uint32_t str)
     return true ;
 }
 
+static bool loadSaveToString(basic_line_t* line, uint32_t str)
+{
+    uint32_t exprindex = getU32(line, 1);
+    uint32_t strh = basic_expr_to_string(exprindex);
+    if (!str_add_handle(str, strh)) {
+        str_destroy(strh);
+        return false;
+    }
+
+    str_destroy(strh);
+    return true;
+}
+
 static bool printToString(basic_line_t *line, uint32_t str)
 {
     int index = 1 ;
     while (index < line->count_) 
     {
-        assert(line->tokens_[index] == BTOKEN_EXPR);
-        index++ ;
-
         uint32_t exprindex = getU32(line, index);
         uint32_t strh = basic_expr_to_string(exprindex);
         if (!str_add_handle(str, strh)) {
             str_destroy(strh) ;
-            str_destroy(str) ;
-            return STR_INVALID ;
+            return false;
         }
         str_destroy(strh);
         index += 4 ;
@@ -180,21 +194,18 @@ static bool printToString(basic_line_t *line, uint32_t str)
 
         if (line->tokens_[index] == BTOKEN_COMMA) {
             if (!str_add_str(str, ",")) {
-                str_destroy(str) ;
-                return STR_INVALID ;
+                return false;
             }
             index++ ;
         }
         else if (line->tokens_[index] == BTOKEN_SEMICOLON) {
             if (!str_add_str(str, ";")) {
-                str_destroy(str) ;
-                return STR_INVALID ;
+                return false;
             }
             index++ ;
         }
         else {
-            str_destroy(str) ;
-            return STR_INVALID ;            
+            return false;
         }
     }
 
@@ -218,16 +229,6 @@ static bool oneLineToString(basic_line_t *line, uint32_t str)
 
     switch(line->tokens_[0])
     {
-        case BTOKEN_FOR:
-            break ;
-
-        case BTOKEN_GOSUB:
-        case BTOKEN_GOTO:
-            break ;
-
-        case BTOKEN_IF:
-            break ;
-
         case BTOKEN_REM:
             if (!remToString(line, str))
                 return false ;
@@ -238,10 +239,19 @@ static bool oneLineToString(basic_line_t *line, uint32_t str)
                 return false;
             break ;
 
-        case BTOKEN_LET:
-            if (!letToString(line, str))
+        case BTOKEN_LET_ARRAY:
+            if (!letArrayToString(line, str))
                 return false ;
             break ;
+
+        case BTOKEN_LET_SIMPLE:
+            if (!letSimpleToString(line, str))
+                return false;
+            break;
+
+        case BTOKEN_LET:
+            assert(false);
+            break;
 
         case BTOKEN_PRINT:
             if (!printToString(line, str))
@@ -250,9 +260,12 @@ static bool oneLineToString(basic_line_t *line, uint32_t str)
 
         case BTOKEN_SAVE:
         case BTOKEN_LOAD:
+            if (!loadSaveToString(line, str))
+                return false;
             break ;
 
         default:    // No additional args
+            assert(false);
             break ;
     }
 
@@ -447,12 +460,10 @@ void basic_print(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
     *err = BASIC_ERR_NONE ;    
 
     while (index < line->count_) {
-        assert(line->tokens_[index] == BTOKEN_EXPR) ;
-        index++ ;
-
         uint32_t expr = getU32(line, index) ;
         index += 4 ;
-        basic_value_t *value = basic_eval_expr(expr, err);
+
+        basic_value_t *value = basic_expr_eval(expr, err);
         if (value == NULL)
             return ;
 
@@ -499,18 +510,13 @@ void basic_rem(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 
 void basic_let_simple(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
-    // We expect a token pattern of BTOKEN_LET, VAR, EXPR
-    assert(line->count_ == 11);
-    assert(line->tokens_[0] == BTOKEN_LET) ;
-    assert(line->tokens_[1] == BTOKEN_VAR) ;
-    assert(line->tokens_[6] == BTOKEN_EXPR) ;
-
+    assert(line->count_ == 9);
     *err = BASIC_ERR_NONE ;    
 
-    uint32_t varindex = getU32(line, 2) ;
-    uint32_t exprindex = getU32(line, 7) ;
+    uint32_t varindex = getU32(line, 1) ;
+    uint32_t exprindex = getU32(line, 5) ;
 
-    basic_value_t *value = basic_eval_expr(exprindex, err) ;
+    basic_value_t *value = basic_expr_eval(exprindex, err) ;
     if (value == NULL)
         return ;
 
@@ -522,30 +528,22 @@ void basic_let_simple(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn
 
 void basic_let_array(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
-    int dimcnt ;
-    int dims[BASIC_MAX_DIMS] ;
-    int index = 6 ;
-
-    // We expect a token pattern of BTOKEN_LET, VAR, EXPR
-    assert(line->tokens_[0] == BTOKEN_LET) ;
-    assert(line->tokens_[1] == BTOKEN_ARRAY) ;
+    uint32_t dims[BASIC_MAX_DIMS] ;
+    int index = 1;
 
     *err = BASIC_ERR_NONE ;    
 
-    uint32_t varindex = getU32(line, 2) ;
+    uint32_t varindex = getU32(line, index) ;
+    index += 4;
     
-    dimcnt = basic_var_get_dim_count(varindex, err) ;
-    if (dimcnt == -1)
-        return ;
+    uint32_t dimcnt = getU32(line, index);
+    index += 4;
 
-    for(int i = 0 ; i < dimcnt ; i++) {
-        assert(line->tokens_[index] == BTOKEN_EXPR);
-        index++;
-
+    for(uint32_t i = 0 ; i < dimcnt ; i++) {
         uint32_t exprindex = getU32(line, index) ;
         index += 4 ;
 
-        basic_value_t* value = basic_eval_expr(exprindex, err);
+        basic_value_t* value = basic_expr_eval(exprindex, err);
         if (value == NULL)
             return;
 
@@ -554,15 +552,17 @@ void basic_let_array(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
             return;
         }
 
-        dims[i] = (int)value->value.nvalue_;
-    }
+        if (value->value.nvalue_ < 0) {
+            *err = BASIC_ERR_INVALID_DIMENSION;
+            return;
+        }
 
-    assert(line->tokens_[index] == BTOKEN_EXPR);
-    index++;
+        dims[i] = (uint32_t)value->value.nvalue_;
+    }
 
     uint32_t exprindex = getU32(line, index) ;
 
-    basic_value_t *value = basic_eval_expr(exprindex, err) ;
+    basic_value_t *value = basic_expr_eval(exprindex, err) ;
     if (value == NULL)
         return ;
 
@@ -572,16 +572,28 @@ void basic_let_array(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
     return ;
 }
 
-void basic_let(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
-{
-    if (line->tokens_[1] == BTOKEN_VAR)
-        basic_let_simple(line, err, outfn) ;
-    else
-        basic_let_array(line, err, outfn) ;
-}
-
 void basic_dim(basic_line_t* line, basic_err_t* err, basic_out_fn_t outfn)
 {
+    uint32_t dims[BASIC_MAX_DIMS];
+    uint32_t varidx, dimcnt;
+    int index = 1;
+
+    while (index < line->count_) {
+        varidx = getU32(line, index);
+        index += 4;
+
+        dimcnt = getU32(line, index);
+        index += 4;
+
+        for (uint32_t i = 0; i < dimcnt; i++) {
+            dims[i] = getU32(line, index);
+            index += 4;
+        }
+
+        if (!basic_var_add_dims(varidx, dimcnt, dims, err))
+            return;
+    }
+
     *err = BASIC_ERR_NONE;
 }
 
@@ -650,9 +662,17 @@ static void exec_one_statement(basic_line_t *line, exec_context_t *nextline, bas
             basic_flist(line, err, outfn) ;
             break ;            
 
-        case BTOKEN_LET:
-            basic_let(line, err, outfn) ;
+        case BTOKEN_LET_SIMPLE:
+            basic_let_simple(line, err, outfn) ;
             break ;
+
+        case BTOKEN_LET_ARRAY:
+            basic_let_array(line, err, outfn);
+            break;
+
+        case BTOKEN_LET:
+            assert(false);
+            break;
 
         case BTOKEN_DIM:
             basic_dim(line, err, outfn);

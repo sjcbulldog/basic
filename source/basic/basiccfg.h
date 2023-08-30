@@ -23,3 +23,6 @@
 // The stack depth of the expression parser 
 #define BASIC_MAX_EXPR_DEPTH					(48)
 
+// The maximum number of arguments to a def fnX(a,b,c,d) function
+#define BASIC_MAX_DEFFN_ARGS					(4)
+

@@ -4,7 +4,7 @@
 // 
 // Error codes
 //
-typedef enum {
+typedef enum basic_err {
     BASIC_ERR_NONE = 0,
     BASIC_ERR_OUT_OF_MEMORY = 1,
     BASIC_ERR_NETWORK_ERROR = 2,
@@ -39,4 +39,5 @@ typedef enum {
     BASIC_ERR_NOT_ARRAY = 31,
     BASIC_ERR_DIM_MISMATCH = 32,
     BASIC_ERR_BAD_ARG_COUNT = 33,
+    BASIC_ERR_TRNG_FAILED = 34
 } basic_err_t ;

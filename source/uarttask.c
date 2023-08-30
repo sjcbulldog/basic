@@ -74,16 +74,22 @@ static void uart_event_handler(void *arg, cyhal_uart_event_t event)
 static cy_rslt_t uart_output(const char *text, int len)
 {
     static char cr = '\r';
-    size_t wlen;
+    size_t wlen ;
 
     while (len-- > 0)
     {
-        wlen = 1;
-        cyhal_uart_write(&cy_retarget_io_uart_obj, (void *)text, &wlen);
+        do {
+            wlen = 1 ;
+            cyhal_uart_write(&cy_retarget_io_uart_obj, (void *)text, &wlen);
+        } while (wlen == 0) ;
+        
         if (*text == '\n')
         {
-            wlen = 1;
-            cyhal_uart_write(&cy_retarget_io_uart_obj, (void *)&cr, &wlen);
+            do {
+                wlen = 1;
+                cyhal_uart_write(&cy_retarget_io_uart_obj, (void *)&cr, &wlen);
+            }
+            while (wlen == 0) ;
         }
         text++;
     }

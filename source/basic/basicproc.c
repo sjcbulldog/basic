@@ -9,6 +9,7 @@
 #include <ctype.h>
 #include <string.h>
 #include <stdbool.h>
+#include <assert.h>
 
 #ifndef DESKTOP
 #include <ff.h>
@@ -42,6 +43,9 @@ static token_table_t tokens[] =
     { BTOKEN_DEF, "def"},
     { BTOKEN_INPUT, "input"},
     { BTOKEN_ON, "on"},
+
+    { BTOKEN_LET_SIMPLE, "let"},
+    { BTOKEN_LET_ARRAY, "let"},
 } ;
 
 static char linebuf[256] ;
@@ -51,8 +55,9 @@ static char msg[128];
 const char *basic_token_to_str(uint8_t token)
 {
     for(int i = 0 ; i < sizeof(tokens) / sizeof(tokens[0]) ; i++) {
-        if (tokens[i].token_ == token)
-            return tokens[i].str_ ;
+        if (tokens[i].token_ == token) {
+            return tokens[i].str_;
+        }
     }
 
     return "!ERROR!" ;
@@ -77,23 +82,65 @@ static basic_line_t *create_line()
 void basic_destroy_line(basic_line_t *line)
 {
     if (line->tokens_ != NULL) {
-    	int index = 1 ;
-    	while (index < line->count_) {
-    		if (line->tokens_[index] == BTOKEN_VAR || line->tokens_[index] == BTOKEN_ARRAY) {
-    			uint32_t var = getU32(line, index + 1);
-    			index += 5 ;
-    			basic_var_destroy(var);
-    		}
-    		else if (line->tokens_[index] == BTOKEN_EXPR) {
-    			uint32_t var = getU32(line, index + 1);
-    			index += 5 ;
-    			basic_destroy_expr(var);
-    		}
-    		else {
-    			index++ ;
-    		}
-    	}
-        free(line->tokens_) ;
+        switch (line->tokens_[0])
+        {
+            case BTOKEN_DIM:
+                break;
+
+            case BTOKEN_LOAD:
+            case BTOKEN_SAVE:
+                basic_expr_destroy(getU32(line, 1));
+                break;
+
+            case BTOKEN_LET_SIMPLE:
+                basic_expr_destroy(getU32(line, 5));
+                break;
+
+            case BTOKEN_LET_ARRAY:
+            {
+                int index = 5;
+                uint32_t dimcnt = getU32(line, index);
+                index += 4;
+
+                // Note, the +1 covers the assigned expression
+                for (uint32_t i = 0; i < dimcnt + 1; i++) {
+                    uint32_t expridx = getU32(line, index);
+                    index += 4;
+                    basic_expr_destroy(expridx);
+                }
+            }
+            break;
+
+            case BTOKEN_PRINT:
+            {
+                int index = 1;
+                while (index < line->count_) {
+                    uint32_t expridx = getU32(line, index);
+                    index += 4;
+                    basic_expr_destroy(expridx);
+
+                    if (index == line->count_)
+                        break;
+
+                    assert(line->tokens_[index] == BTOKEN_COMMA || line->tokens_[index] == BTOKEN_SEMICOLON);
+                    index++;
+                }
+            }
+            break; 
+
+            case BTOKEN_REM:
+            case BTOKEN_LIST:
+            case BTOKEN_RUN: 
+            case BTOKEN_CLEAR:
+            case BTOKEN_FLIST:
+                break;
+
+            default:
+                assert(false);
+                break;
+        }
+
+        free(line->tokens_);
     }
 
     if (line->extra_) {
@@ -218,133 +265,87 @@ static const char *parse_varname(const char *line, uint32_t *varindex, basic_err
     return line ;
 }
 
-static const char *parse_for(basic_line_t *bline, const char *line, basic_err_t *err)
+static const char* parse_def(basic_line_t* bline, const char* line, basic_err_t* err)
 {
-    uint8_t token ;
-    uint32_t varindex, startexpr, endexpr, stepexpr ;
+    char keyword[BASIC_MAX_VARIABLE_LENGTH + 1];
+    int stored = 0;
+    uint32_t exprindex;
+    char* argnames[BASIC_MAX_DEFFN_ARGS];
 
-    line = parse_varname(line, &varindex, err) ;
-    if (line == NULL) {
-        return false ;
+    line = skipSpaces(line);
+    while (isalpha((uint8_t)*line))
+    {
+        keyword[stored++] = *line++;
+        if (stored == BASIC_MAX_VARIABLE_LENGTH + 1) {
+            *err = BASIC_ERR_VARIABLE_TOO_LONG;
+            return NULL;
+        }
+    }
+    keyword[stored] = '\0';
+
+    char* fnname = _strdup(keyword);
+    if (fnname == NULL) {
+        *err = BASIC_ERR_OUT_OF_MEMORY;
+        return NULL;
     }
 
-    line = skipSpaces(line) ;
+    if (*line != '(') {
+        *err = BASIC_ERR_EXPECTED_OPENPAREN;
+        return NULL;
+    }
+    line++;
+
+    int index = 0;
+    while (true) {
+        line = skipSpaces(line);
+        stored = 0;
+        while (isalpha((int)*line)) {
+            keyword[stored++] = *line++;
+            if (stored == BASIC_MAX_VARIABLE_LENGTH + 1) {
+                *err = BASIC_ERR_VARIABLE_TOO_LONG;
+                return NULL;
+            }
+        }
+        keyword[stored] = '\0';
+        argnames[index] = _strdup(keyword);
+        if (argnames[index] == NULL) {
+            *err = BASIC_ERR_OUT_OF_MEMORY;
+            return NULL;
+        }
+        index++;
+
+        line = skipSpaces(line);
+        if (*line == ')') {
+            break;
+        }
+        else if (*line != ',') {
+            *err = BASIC_ERR_EXPECTED_CLOSEPAREN;
+            return NULL;
+        }
+    }
+
+    line = skipSpaces(line + 1);
+
     if (*line != '=') {
-        *err = BASIC_ERR_EXPECTED_EQUAL ;
-        return false ;
+        *err = BASIC_ERR_EXPECTED_EQUAL;
+        return NULL;
     }
-    line++ ;
 
-    line = basic_parse_expr(line, &startexpr, err) ;
+    line = skipSpaces(line + 1);
+
+    line = basic_expr_parse(line, index, argnames, &exprindex, err);
     if (line == NULL) {
-        return NULL ;
-    }
-    
-    line = parse_keyword(line, &token, err) ;
-    if (line == NULL) {
-        return NULL ;
+        return NULL;
     }
 
-    if (token != BTOKEN_TO) {
-        *err = BASIC_ERR_EXPECTED_TO ;
-        return NULL ;
+    //
+    // Bind the expression to the function name
+    //
+    if (!basic_expr_bind_user_fn(fnname, index, argnames, exprindex, err)) {
+        line = NULL;
     }
 
-    line = basic_parse_expr(line, &endexpr, err) ;
-    if (line == NULL) {
-        return NULL ;
-    }
-
-    line = skipSpaces(line) ;
-    if (*line != '\0' && *line != ':') {
-        line = parse_keyword(line, &token, err) ;
-        if (line == NULL) {
-            return NULL ;
-        }
-
-        if (token != BTOKEN_STEP) {
-            *err = BASIC_ERR_EXPECTED_STEP ;
-            return NULL ;
-        }
-
-        line = basic_parse_expr(line, &stepexpr, err) ;
-        if (line == NULL) {
-            return NULL ;
-        }
-    }
-    else {
-        line = basic_parse_expr("1", &stepexpr, err);
-    }
-
-    if (!add_token(bline, BTOKEN_VAR)) {
-        *err = BASIC_ERR_OUT_OF_MEMORY ;
-        return NULL ;
-    }
-
-    if (!add_uint32(bline, varindex)) {
-        *err = BASIC_ERR_OUT_OF_MEMORY ;
-        return NULL ;
-    }
-
-    if (!add_token(bline, BTOKEN_EXPR)) {
-        *err = BASIC_ERR_OUT_OF_MEMORY ;
-        return NULL ;
-    }
-
-    if (!add_uint32(bline, startexpr)) {
-        *err = BASIC_ERR_OUT_OF_MEMORY ;
-        return NULL ;        
-    }
-
-    if (!add_token(bline, BTOKEN_EXPR)) {
-        *err = BASIC_ERR_OUT_OF_MEMORY ;
-        return NULL ;
-    }
-
-    if (!add_uint32(bline, endexpr)) {
-        *err = BASIC_ERR_OUT_OF_MEMORY ;
-        return NULL ;        
-    }
-
-    if (!add_token(bline, BTOKEN_EXPR)) {
-        *err = BASIC_ERR_OUT_OF_MEMORY ;
-        return NULL ;
-    }
-
-    if (!add_uint32(bline, stepexpr)) {
-        *err = BASIC_ERR_OUT_OF_MEMORY ;
-        return NULL ;        
-    }        
-
-    return line ;
-}
-
-static const char *parse_gotogosub(basic_line_t *bline, const char *line, basic_err_t *err)
-{
-    uint32_t exprindex ;
-
-    line = basic_parse_expr(line, &exprindex, err) ;
-    if (line == NULL) {
-        return NULL ;
-    }
-
-    line = skipSpaces(line) ;
-    if (*line != '\0' && *line != ':') {
-        *err = BASIC_ERR_EXTRA_CHARS ;
-        return NULL ;
-    }
-
-    if (!add_token(bline, BTOKEN_EXPR)) {
-        *err = BASIC_ERR_OUT_OF_MEMORY ;
-        return NULL ;
-    }
-
-    if (!add_uint32(bline, exprindex)) {
-        *err = BASIC_ERR_OUT_OF_MEMORY ;
-        return NULL ;
-    }
-
-    return line ;
+    return line;
 }
 
 static const char *parse_print(basic_line_t *bline, const char *line, basic_err_t *err)
@@ -358,13 +359,8 @@ static const char *parse_print(basic_line_t *bline, const char *line, basic_err_
     }
 
     while (1) {
-        line = basic_parse_expr(line, &exprindex, err) ;
+        line = basic_expr_parse(line, 0, NULL, &exprindex, err) ;
         if (line == NULL) {
-            return NULL ;
-        }
-
-        if (!add_token(bline, BTOKEN_EXPR)) {
-            *err = BASIC_ERR_OUT_OF_MEMORY ;
             return NULL ;
         }
 
@@ -416,7 +412,7 @@ static const char *parse_let(basic_line_t *bline, const char *line, basic_err_t 
         //
         // This is an array
         //
-        line = basic_parse_dims_expr(line, &dimcnt, dims, err);
+        line = basic_expr_parse_dims_expr(line, &dimcnt, dims, err);
         if (line == NULL)
             return NULL;
 
@@ -430,7 +426,7 @@ static const char *parse_let(basic_line_t *bline, const char *line, basic_err_t 
 
     line++ ;
 
-    line = basic_parse_expr(line, &exprindex, err) ;
+    line = basic_expr_parse(line, 0, NULL, &exprindex, err) ;
     if (line == NULL) {
         return NULL ;
     }
@@ -441,20 +437,9 @@ static const char *parse_let(basic_line_t *bline, const char *line, basic_err_t 
         return NULL ;
     }
 
+    bline->count_ = 0;
     if (dimcnt > 0) {
-        //
-        // We need to confirm that the number of dimensions is avlid
-        //
-        int tcnt = basic_var_get_dim_count(varindex, err);
-        if (tcnt == -1)
-            return NULL;
-
-        if (tcnt != dimcnt) {
-            *err = BASIC_ERR_DIM_MISMATCH;
-            return NULL ;
-        }
-
-        if (!add_token(bline, BTOKEN_ARRAY)) {
+        if (!add_token(bline, BTOKEN_LET_ARRAY)) {
             *err = BASIC_ERR_OUT_OF_MEMORY ;
             return NULL ;
         }
@@ -464,12 +449,12 @@ static const char *parse_let(basic_line_t *bline, const char *line, basic_err_t 
             return NULL ;
         }
 
-        for(int i = 0 ; i < dimcnt ; i++) {
-            if (!add_token(bline, BTOKEN_EXPR)) {
-                *err = BASIC_ERR_OUT_OF_MEMORY;
-                return NULL;
-            }
+        if (!add_uint32(bline, dimcnt)) {
+            *err = BASIC_ERR_OUT_OF_MEMORY;
+            return NULL;
+        }
 
+        for(int i = 0 ; i < dimcnt ; i++) {
             if (!add_uint32(bline, dims[i])) {
                 *err = BASIC_ERR_OUT_OF_MEMORY ;
                 return NULL ;
@@ -477,7 +462,7 @@ static const char *parse_let(basic_line_t *bline, const char *line, basic_err_t 
         }
     }
     else {
-        if (!add_token(bline, BTOKEN_VAR)) {
+        if (!add_token(bline, BTOKEN_LET_SIMPLE)) {
             *err = BASIC_ERR_OUT_OF_MEMORY ;
             return NULL ;
         }
@@ -488,48 +473,10 @@ static const char *parse_let(basic_line_t *bline, const char *line, basic_err_t 
         }
     }
 
-    if (!add_token(bline, BTOKEN_EXPR)) {
-        *err = BASIC_ERR_OUT_OF_MEMORY ;
-        return NULL ;
-    }
-
     if (!add_uint32(bline, exprindex)) {
         *err = BASIC_ERR_OUT_OF_MEMORY ;
         return NULL ;        
     }
-
-    return line ;
-}
-
-static const char *parse_if(basic_line_t *bline, const char *line, basic_err_t *err)
-{
-    uint32_t exprindex ;
-    uint8_t token ;
-
-    line = basic_parse_expr(line, &exprindex, err) ;
-    if (line == NULL) {
-        return NULL ;
-    }
-
-    line = parse_keyword(line, &token, err) ;
-    if (line == NULL) {
-        return NULL ;
-    }
-
-    if (token != BTOKEN_THEN) {
-        *err = BASIC_ERR_EXPECTED_THEN ;
-        return NULL ;
-    }
-
-    if (!add_token(bline, BTOKEN_EXPR)) {
-        *err = BASIC_ERR_OUT_OF_MEMORY ;
-        return NULL ;
-    }
-
-    if (!add_uint32(bline, exprindex)) {
-        *err = BASIC_ERR_OUT_OF_MEMORY ;
-        return NULL ;        
-    }    
 
     return line ;
 }
@@ -538,13 +485,8 @@ static const char *parse_loadsave(basic_line_t *bline, const char *line, basic_e
 {
     uint32_t exprindex ;
 
-    line = basic_parse_expr(line, &exprindex, err) ;
+    line = basic_expr_parse(line, 0, NULL, &exprindex, err) ;
     if (line == NULL) {
-        return NULL ;
-    }
-
-    if (!add_token(bline, BTOKEN_EXPR)) {
-        *err = BASIC_ERR_OUT_OF_MEMORY ;
         return NULL ;
     }
 
@@ -556,12 +498,11 @@ static const char *parse_loadsave(basic_line_t *bline, const char *line, basic_e
     return line ;    
 }
 
-
 static const char *parse_dim(basic_line_t *bline, const char *line, basic_err_t *err)
 {
     uint32_t index ;
-    int dimcnt = 0 ;
-    int dims[BASIC_MAX_DIMS] ;
+    uint32_t dimcnt = 0 ;
+    uint32_t dims[BASIC_MAX_DIMS] ;
 
     while (true) {
         line = parse_varname(line, &index, err) ;
@@ -569,23 +510,25 @@ static const char *parse_dim(basic_line_t *bline, const char *line, basic_err_t 
             return NULL ;
         }
 
-        line = basic_parse_dims_const(line, &dimcnt, dims, err);
+        line = basic_expr_parse_dims_const(line, &dimcnt, dims, err);
         if (line == NULL)
             return NULL;
-
-        // Now we have a complete value
-        if (!basic_var_add_dims(index, dimcnt, dims, err)) {
-            return NULL ;
-        }
-
-        if (!add_token(bline, BTOKEN_VAR)) {
-            *err = BASIC_ERR_OUT_OF_MEMORY;
-            return NULL;
-        }
 
         if (!add_uint32(bline, index)) {
             *err = BASIC_ERR_OUT_OF_MEMORY;
             return NULL;
+        }
+
+        if (!add_uint32(bline, dimcnt)) {
+            *err = BASIC_ERR_OUT_OF_MEMORY;
+            return NULL;
+        }
+
+        for (uint32_t i = 0; i < dimcnt; i++) {
+            if (!add_uint32(bline, dims[i])) {
+                *err = BASIC_ERR_OUT_OF_MEMORY;
+                return NULL;
+            }
         }
 
         line = skipSpaces(line) ;
@@ -605,118 +548,105 @@ static const char *parse_dim(basic_line_t *bline, const char *line, basic_err_t 
     return line ;
 }
 
-static const char *tokenize_one(const char *line, basic_line_t **bline, basic_err_t *err)
+static const char* tokenize_one(const char* line, basic_line_t** bline, basic_err_t* err)
 {
-    basic_line_t *ret ;
-    uint8_t token ;  
+    basic_line_t* ret;
+    uint8_t token;
 
-    line = skipSpaces(line) ;
+    line = skipSpaces(line);
 
-    ret = create_line() ;
+    ret = create_line();
     if (ret == NULL) {
-        *err = BASIC_ERR_OUT_OF_MEMORY ;
-        *bline = NULL ;
-        return NULL ;
+        *err = BASIC_ERR_OUT_OF_MEMORY;
+        *bline = NULL;
+        return NULL;
     }
-    *bline = ret ;
+    *bline = ret;
 
     //
     // Now, look for a token to start the line
     //
-    const char *save = line ;
-    line = parse_keyword(line, &token, err) ;
+    const char* save = line;
+    line = parse_keyword(line, &token, err);
     if (line == NULL) {
-        line = save ;
-        int errsave = *err ;
+        line = save;
+        int errsave = *err;
 
         //
         // Ok, it is not a basic token, but it might be a variables
         //
-        add_token(ret, BTOKEN_LET);
-        line = parse_let(ret, line, err) ;
+        line = parse_let(ret, line, err);
         if (line == NULL) {
-            *err = errsave ;
-            basic_destroy_line(ret) ;
-            *bline = NULL ;
-            return NULL ;
+            *err = errsave;
+            basic_destroy_line(ret);
+            *bline = NULL;
+            return NULL;
         }
         else {
-            return line ;
+            return line;
         }
     }
 
-    add_token(ret, token) ;
+    add_token(ret, token);
 
     if (token == BTOKEN_TO) {
         basic_destroy_line(ret);
-        *err = BASIC_ERR_INVALID_TOKEN ;
-        ret = NULL ;
-    } else if ( token == BTOKEN_CLEAR || token == BTOKEN_CLS || token == BTOKEN_ELSE || token == BTOKEN_ENDIF ||
-                token == BTOKEN_LIST || token == BTOKEN_RUN || token == BTOKEN_THEN || token == BTOKEN_FLIST)
+        *err = BASIC_ERR_INVALID_TOKEN;
+        ret = NULL;
+    }
+    else if (token == BTOKEN_CLEAR || token == BTOKEN_CLS || token == BTOKEN_ELSE || token == BTOKEN_ENDIF ||
+        token == BTOKEN_LIST || token == BTOKEN_RUN || token == BTOKEN_THEN || token == BTOKEN_FLIST)
     {
-        line = skipSpaces(line) ;
+        line = skipSpaces(line);
         if (*line != '\0') {
-            *err = BASIC_ERR_EXTRA_CHARS ;
-            basic_destroy_line(ret) ;
-            ret = NULL ;
+            *err = BASIC_ERR_EXTRA_CHARS;
+            basic_destroy_line(ret);
+            ret = NULL;
         }
-    } else if (token == BTOKEN_REM) {
+    }
+    else if (token == BTOKEN_REM) {
 #ifdef DESKTOP
-        ret->extra_ = _strdup(line) ;
+        ret->extra_ = _strdup(line);
 #else
-        ret->extra_ = strdup(line) ;
+        ret->extra_ = strdup(line);
 #endif
         if (ret->extra_ == NULL) {
-            *err = BASIC_ERR_OUT_OF_MEMORY ;
-            basic_destroy_line(ret) ;
-            ret = NULL ;
+            *err = BASIC_ERR_OUT_OF_MEMORY;
+            basic_destroy_line(ret);
+            ret = NULL;
         }
         int len = (int)strlen(ret->extra_);
         if (ret->extra_[len - 1] == '\n') {
-            ret->extra_[len - 1] = '\0' ;
+            ret->extra_[len - 1] = '\0';
         }
         while (*line != '\0')
-            line++ ;
+            line++;
 
-    } else if (token == BTOKEN_LET) {
-        line = parse_let(ret, line, err) ;
+    }
+    else if (token == BTOKEN_LET) {
+        line = parse_let(ret, line, err);
         if (line == NULL) {
-            basic_destroy_line(ret) ;
-            *bline = NULL ;
-            line = NULL ;
-        }
-    } else if (token == BTOKEN_PRINT) {
-        line = parse_print(ret, line, err) ;
-        if (line == NULL) {
-            basic_destroy_line(ret) ;
-            *bline = NULL ;
-            line = NULL ;
+            basic_destroy_line(ret);
+            *bline = NULL;
+            line = NULL;
         }
     }
-    else if (token == BTOKEN_FOR) {
-        line = parse_for(ret, line, err) ;
+    else if (token == BTOKEN_PRINT) {
+        line = parse_print(ret, line, err);
         if (line == NULL) {
-            basic_destroy_line(ret) ;
-            *bline = NULL ;
-            line = NULL ;
+            basic_destroy_line(ret);
+            *bline = NULL;
+            line = NULL;
         }
     }
-    else if (token == BTOKEN_GOSUB || token == BTOKEN_GOTO) {
-        line = parse_gotogosub(ret, line, err) ;
+    else if (token == BTOKEN_DEF) {
+        line = parse_def(ret, line, err);
         if (line == NULL) {
-            basic_destroy_line(ret) ;
-            *bline = NULL ;
-            line = NULL ;
+            basic_destroy_line(ret);
+            *bline = NULL;
+            line = NULL;
         }
-    }
-    else if (token == BTOKEN_IF) {
-        line = parse_if(ret, line, err) ;
-        if (line == NULL) {
-            basic_destroy_line(ret) ;
-            *bline = NULL ;
-            line = NULL ;
-        }
-    }
+    } 
     else if (token == BTOKEN_LOAD || token == BTOKEN_SAVE) {
         line = parse_loadsave(ret, line, err) ;
         if (line == NULL) {
@@ -769,7 +699,7 @@ static basic_line_t *tokenize(const char *line, basic_err_t *err)
 
     if (isdigit((uint8_t)(*line))) {
         // Starts with a line number
-        line = basic_parse_int(line, &lineno, err);
+        line = basic_expr_parse_int(line, &lineno, err);
         line = skipSpaces(line) ;
     }
 

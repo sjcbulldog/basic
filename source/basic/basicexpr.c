@@ -1,6 +1,5 @@
 #include "basicexpr.h"
 #include "basicexprint.h"
-#include "basicerr.h"
 #include "basiccfg.h"
 #include "mystr.h"
 #include <ctype.h>
@@ -11,15 +10,24 @@
 
 #ifndef DESKTOP
 #define _stricmp strcasecmp
+#define _strdup strdup
+#include <cyhal.h>
+static bool crypto_inited = false ;
+static cyhal_trng_t trng_obj ;
 #endif
 
 static basic_value_t *eval_node(basic_operand_t *op, basic_err_t *err) ;
+static const char* parse_operand_top(const char* line, int argcntg, char **argnames, basic_operand_t** ret, basic_err_t* err);
+static bool basic_operand_to_string(basic_operand_t* oper, uint32_t str);
 
 static uint32_t next_var_index = 1 ;
 static basic_var_t *vars = NULL ;
 
 static uint32_t next_expr_index = 1 ;
 static basic_expr_t *exprs = NULL ;
+
+static  uint32_t next_user_fn_index = 1;
+static expr_user_fn_t* userfns = NULL;
 
 operator_table_t operators[] = 
 {
@@ -38,7 +46,7 @@ function_table_t functions[] =
     { 1, "RND", func_rnd },
 };
 
-const char* basic_parse_dims_const(const char* line, int* dimcnt, int* dims, basic_err_t* err)
+const char* basic_expr_parse_dims_const(const char* line, uint32_t* dimcnt, uint32_t* dims, basic_err_t* err)
 {
     *dimcnt = 0;
 
@@ -54,7 +62,7 @@ const char* basic_parse_dims_const(const char* line, int* dimcnt, int* dims, bas
             *err = BASIC_ERR_TOO_MANY_DIMS;
             return NULL;
         }
-        line = basic_parse_int(line, &dims[*dimcnt], err);
+        line = basic_expr_parse_int(line, (int *)&dims[*dimcnt], err);
         if (line == NULL)
             return NULL;
 
@@ -85,7 +93,7 @@ const char* basic_parse_dims_const(const char* line, int* dimcnt, int* dims, bas
     return line;
 }
 
-const char* basic_parse_dims_expr(const char* line, int* dimcnt, uint32_t* dims, basic_err_t* err)
+const char* basic_expr_parse_dims_expr(const char* line, int* dimcnt, uint32_t *dims, basic_err_t* err)
 {
     *dimcnt = 0;
 
@@ -101,14 +109,9 @@ const char* basic_parse_dims_expr(const char* line, int* dimcnt, uint32_t* dims,
             *err = BASIC_ERR_TOO_MANY_DIMS;
             return NULL;
         }
-        line = basic_parse_expr(line, &dims[*dimcnt], err);
+        line = basic_expr_parse(line, 0, NULL, &dims[*dimcnt], err);
         if (line == NULL)
             return NULL;
-
-        if (dims[*dimcnt] < 0 || dims[*dimcnt] > BASIC_MAX_SINGLE_DIM) {
-            *err = BASIC_ERR_INVALID_DIMENSION;
-            return NULL;
-        }
 
         (*dimcnt)++;
 
@@ -132,7 +135,49 @@ const char* basic_parse_dims_expr(const char* line, int* dimcnt, uint32_t* dims,
     return line;
 }
 
-const char *basic_parse_int(const char *line, int *value, basic_err_t *err)
+const char* basic_expr_parse_dims_operands(const char* line, uint32_t* dimcnt, basic_operand_t** dims, basic_err_t* err)
+{
+    *dimcnt = 0;
+
+    line = skipSpaces(line);
+    if (*line != '(') {
+        *err = BASIC_ERR_EXPECTED_OPENPAREN;
+        return NULL;
+    }
+    line++;
+
+    while (true) {
+        if (*dimcnt == BASIC_MAX_DIMS) {
+            *err = BASIC_ERR_TOO_MANY_DIMS;
+            return NULL;
+        }
+        line = parse_operand_top(line, 0, NULL, &dims[*dimcnt], err);
+        if (line == NULL)
+            return NULL;
+
+        (*dimcnt)++;
+
+        line = skipSpaces(line);
+
+        if (*line == ',') {
+            // More dimensions
+            line++;
+        }
+        else if (*line == ')') {
+            // End of the dimensions
+            line++;
+            break;
+        }
+        else {
+            *err = BASIC_ERR_INVALID_CHAR;
+            return NULL;
+        }
+    }
+
+    return line;
+}
+
+const char *basic_expr_parse_int(const char *line, int *value, basic_err_t *err)
 {
     *err = BASIC_ERR_NONE ;
     static char parsebuffer[32];
@@ -225,7 +270,14 @@ const bool value_to_string(uint32_t str, basic_value_t *value)
     bool ret = true;
 
     if (value->type_ == BASIC_VALUE_TYPE_STRING) {
-        ret = str_add_str(str, value->value.svalue_);
+        if (!str_add_str(str, "\""))
+            ret = false;
+
+        if (ret && !str_add_str(str, value->value.svalue_))
+            ret = false;
+
+        if (!str_add_str(str, "\""))
+            ret = false;
     }
     else 
     {
@@ -389,7 +441,7 @@ bool basic_var_get_dims(uint32_t index, uint32_t* dimcnt, uint32_t* dims, basic_
     return true;
 }
 
-static int compute_index(int dimcnt, int *maxdims, int *dims)
+static int compute_index(int dimcnt, uint32_t *maxdims, uint32_t *dims)
 {
     int ret = 0 ;
     int mult = 1 ;
@@ -401,7 +453,7 @@ static int compute_index(int dimcnt, int *maxdims, int *dims)
     return ret ;
 }
 
-basic_value_t *basic_var_get_array_value(uint32_t index, int *dims, basic_err_t *err)
+basic_value_t *basic_var_get_array_value(uint32_t index, uint32_t *dims, basic_err_t *err)
 {
     basic_value_t *ret ;
 
@@ -432,7 +484,7 @@ basic_value_t *basic_var_get_array_value(uint32_t index, int *dims, basic_err_t 
     return ret;
 }
 
-bool basic_var_set_array_value(uint32_t index, basic_value_t *value, int *dims, basic_err_t *err)
+bool basic_var_set_array_value(uint32_t index, basic_value_t *value, uint32_t *dims, basic_err_t *err)
 {
     basic_var_t *var = get_var_from_index(index) ;
     if (var == NULL) {
@@ -458,11 +510,7 @@ bool basic_var_set_array_value(uint32_t index, basic_value_t *value, int *dims, 
             return false ;
         }
 
-#ifdef DESKTOP
         var->sarray_[ain] = _strdup(value->value.svalue_) ;
-#else
-        var->sarray_[ain] = strdup(value->value.svalue_) ;
-#endif
         if (var->sarray_[ain] == NULL) {
             *err = BASIC_ERR_OUT_OF_MEMORY ;
             return false ;
@@ -491,7 +539,7 @@ static bool isString(basic_var_t *var)
     return var->name_[strlen(var->name_) - 1] == '$' ;
 }
 
-bool basic_var_add_dims(uint32_t index, uint32_t dimcnt, int *dims, basic_err_t *err)
+bool basic_var_add_dims(uint32_t index, uint32_t dimcnt, uint32_t *dims, basic_err_t *err)
 {
     basic_var_t *var = get_var_from_index(index) ;
     if (var == NULL) {
@@ -500,7 +548,7 @@ bool basic_var_add_dims(uint32_t index, uint32_t dimcnt, int *dims, basic_err_t 
     }
 
     var->dimcnt_ = dimcnt ;
-    var->dims_ = (int *)malloc(sizeof(int) * dimcnt) ;
+    var->dims_ = (uint32_t *)malloc(sizeof(uint32_t) * dimcnt) ;
     if (var->dims_ == NULL)
         return false ;
 
@@ -541,7 +589,7 @@ bool basic_var_add_dims(uint32_t index, uint32_t dimcnt, int *dims, basic_err_t 
     return true ;
 }
 
-static void basic_destroy_operator(basic_operand_t *operand)
+static void basic_destroy_operand(basic_operand_t *operand)
 {
     switch(operand->type_) {
         case BASIC_OPERAND_TYPE_CONST:
@@ -549,15 +597,25 @@ static void basic_destroy_operator(basic_operand_t *operand)
             break ;
 
         case BASIC_OPERAND_TYPE_OPERATOR:
-            basic_destroy_operator(operand->operand_.operator_args_.left_) ;
-            basic_destroy_operator(operand->operand_.operator_args_.right_) ;
+            basic_destroy_operand(operand->operand_.operator_args_.left_) ;
+            basic_destroy_operand(operand->operand_.operator_args_.right_) ;
             break ;
 
         case BASIC_OPERAND_TYPE_VAR:
             if (operand->operand_.var_.dimcnt_ > 0) {
+                for(int i = 0 ; i < operand->operand_.var_.dimcnt_ ; i++) {
+                    basic_destroy_operand(operand->operand_.var_.dims_[i]);
+                }
                 free(operand->operand_.var_.dims_) ;
             }
             break; 
+
+        case BASIC_OPERAND_TYPE_FUNCTION:
+            for (int i = 0; i < operand->operand_.function_args_.func_->num_args_; i++) {
+                basic_destroy_operand(operand->operand_.function_args_.args_[i]);
+            }
+            free(operand->operand_.function_args_.args_);
+            break;
     }
 }
 
@@ -574,6 +632,7 @@ static bool create_expr(basic_operand_t *operand, uint32_t *index, basic_err_t *
     expr->next_ = exprs ;
     exprs = expr ;
     *index = expr->index_ ;
+
     return true ;
 }
 
@@ -588,7 +647,7 @@ static basic_operand_t *create_const_operand(basic_value_t *value)
     return ret ;
 }
 
-static basic_operand_t *create_var_operand(uint32_t varindex, int dimcnt, uint32_t *dims)
+static basic_operand_t *create_var_operand(uint32_t varindex, int dimcnt, basic_operand_t **dims)
 {
     basic_operand_t *ret = (basic_operand_t *)malloc(sizeof(basic_operand_t)) ;
     if (ret == NULL)
@@ -601,12 +660,12 @@ static basic_operand_t *create_var_operand(uint32_t varindex, int dimcnt, uint32
         ret->operand_.var_.dims_ = NULL ;
     }
     else {
-        ret->operand_.var_.dims_ = (int *)malloc(sizeof(int) * dimcnt) ;
+        ret->operand_.var_.dims_ = (basic_operand_t **)malloc(sizeof(basic_operand_t *) * dimcnt) ;
         if (ret->operand_.var_.dims_ == NULL) {
             free(ret) ;
             return NULL ;
         }
-        memcpy(ret->operand_.var_.dims_, dims, sizeof(int) * dimcnt);
+        memcpy(ret->operand_.var_.dims_, dims, sizeof(basic_operand_t *) * dimcnt);
     }
     return ret ;    
 }
@@ -652,7 +711,25 @@ static basic_value_t* func_rnd(int count, basic_value_t** args, basic_err_t* err
         return NULL;
     }
 
-    return create_number_value(0.5);
+    double value ;
+
+#ifdef DESKTOP
+    value = (double)rand() / (double)RAND_MAX ;
+#else
+    if (!crypto_inited)
+    {
+        cy_rslt_t res = cyhal_trng_init(&trng_obj);
+        if (res != CY_RET_SUCCESS) {
+            *err = BASIC_ERR_TRNG_FAILED ;
+            return NULL ;
+        }
+        crypto_inited = true ;
+    }
+
+    value = (double)cyhal_trng_generate(&trng_obj) / (double)(0xffffffff);
+#endif
+
+    return create_number_value(value) ;
 }
 
 static basic_value_t* func_int(int count, basic_value_t** args, basic_err_t *err)
@@ -676,7 +753,20 @@ static const char *parse_operand(expr_ctxt_t *ctxt, const char *line, basic_oper
     int bind = 0 ;
 
     line = skipSpaces(line);
-    if (isdigit((uint8_t)*line)) {
+    if (*line == '(') {
+        line++;
+        line = parse_operand_top(line, ctxt->argcnt_, ctxt->argnames_, operand, err);
+        if (line == NULL)
+            return NULL;
+
+        line = skipSpaces(line);
+        if (*line != ')') {
+            *err = BASIC_ERR_EXPECTED_CLOSEPAREN;
+            return NULL;
+        }
+        line++;
+    }
+    else if (isdigit((uint8_t)*line)) {
         //
         // Parse a constant number value
         //
@@ -759,7 +849,7 @@ static const char *parse_operand(expr_ctxt_t *ctxt, const char *line, basic_oper
     }
     else if (isalpha((uint8_t)*line)) {
         while (*line && isalpha((uint8_t)*line) && bind < BASIC_PARSE_BUFFER_LENGTH) {
-            ctxt->parsebuffer[bind++] = *line++ ;
+            ctxt->parsebuffer[bind++] = toupper(*line++) ;
             if (bind > BASIC_MAX_VARIABLE_LENGTH) {
                 *err = BASIC_ERR_VARIABLE_TOO_LONG;
                 return NULL;
@@ -768,6 +858,7 @@ static const char *parse_operand(expr_ctxt_t *ctxt, const char *line, basic_oper
         ctxt->parsebuffer[bind] = '\0';
 
         function_table_t* fun = lookup_function(ctxt->parsebuffer);
+
         if (fun) {
             line = skipSpaces(line);
             if (*line != '(') {
@@ -782,21 +873,27 @@ static const char *parse_operand(expr_ctxt_t *ctxt, const char *line, basic_oper
             }
 
             for (int i = 0; i < fun->num_args_; i++) {
-                line = parse_operand(ctxt, line, &(*operand)->operand_.function_args_.args_[i], err);
+                line = parse_operand_top(line, 0, NULL, &(*operand)->operand_.function_args_.args_[i], err);
                 if (line == NULL)
                     return NULL;
             }
+
+            if (*line != ')') {
+                *err = BASIC_ERR_EXPECTED_CLOSEPAREN;
+                return NULL;
+            }
+            line++;
         }
         else {
             //
             // This is a variable
             //
             line = skipSpaces(line);
-            int dimcnt = 0;
-            uint32_t dims[BASIC_MAX_DIMS];
+            uint32_t dimcnt = 0;
+            basic_operand_t *dims[BASIC_MAX_DIMS];
 
             if (*line == '(') {
-                line = basic_parse_dims_expr(line, &dimcnt, dims, err);
+                line = basic_expr_parse_dims_operands(line, &dimcnt, dims, err);
                 if (line == NULL)
                     return NULL;
             }
@@ -829,38 +926,24 @@ static const char *parse_operator(const char *line, operator_table_t **oper, bas
     return line ;
 }
 
-static uint32_t dimvar_to_str(basic_var_args_t *var)
+bool basic_expr_operand_array_to_str(uint32_t str, int cnt, basic_operand_t **args)
 {
-    uint32_t str = str_create() ;
-    if (str == STR_INVALID)
-        return STR_INVALID  ;
-
-    const char *v = basic_var_get_name(var->varindex_);
-    if (!str_add_str(str, v)) {
+    if (!str_add_str(str, "(")) {
         str_destroy(str) ;
         return STR_INVALID ;
     }
 
-    if (!str_add_str(str, "(")) {
-                str_destroy(str) ;
-        return STR_INVALID ;
-    }
-
-    for (int i = 0; i < var->dimcnt_; i++) {
+    for (int i = 0; i < cnt; i++) {
         if (i != 0) {
             if (!str_add_str(str, ",")) {
                 str_destroy(str);
                 return STR_INVALID;
             }
         }
-        uint32_t h = basic_expr_to_string(var->dims_[i]);
-        if (!str_add_handle(str, h)) {
+        if (!basic_operand_to_string(args[i], str)) {
             str_destroy(str);
-            str_destroy(h);
             return STR_INVALID;
         }
-
-        str_destroy(h);
     }
 
     if (!str_add_str(str, ")")) {
@@ -871,7 +954,7 @@ static uint32_t dimvar_to_str(basic_var_args_t *var)
     return str;
 }
 
-static bool basic_oper_to_string(basic_operand_t *oper, uint32_t str)
+static bool basic_operand_to_string(basic_operand_t *oper, uint32_t str)
 {
     bool ret = true ;
     const char *v ;
@@ -885,7 +968,7 @@ static bool basic_oper_to_string(basic_operand_t *oper, uint32_t str)
 
         case BASIC_OPERAND_TYPE_OPERATOR:
             {
-                if (!basic_oper_to_string(oper->operand_.operator_args_.left_, str))
+                if (!basic_operand_to_string(oper->operand_.operator_args_.left_, str))
                     ret = false ;
 
                 if (ret) {
@@ -894,30 +977,31 @@ static bool basic_oper_to_string(basic_operand_t *oper, uint32_t str)
                 }
 
                 if (ret) {
-                    if (!basic_oper_to_string(oper->operand_.operator_args_.right_, str))
+                    if (!basic_operand_to_string(oper->operand_.operator_args_.right_, str))
                         ret = false ;
                 }
             }
             break;
 
         case BASIC_OPERAND_TYPE_VAR:
+            v = basic_var_get_name(oper->operand_.var_.varindex_);
+            if (!str_add_str(str, v))
+                ret = false;
+
             if (oper->operand_.var_.dimcnt_ > 0) {
-                int strh = dimvar_to_str(&oper->operand_.var_) ;
-                if (strh == STR_INVALID)
+                if (ret && !basic_expr_operand_array_to_str(str, oper->operand_.var_.dimcnt_, oper->operand_.var_.dims_))
                     ret = false;
 
-                if (!str_add_handle(str, strh)) {
-                    str_destroy(strh) ;
-                    ret = false ;
-                }
             }
-            else {
-                v = basic_var_get_name(oper->operand_.var_.varindex_);
-                if (!str_add_str(str, v))
-                    ret = false ;
+            break ;
+
+        case BASIC_OPERAND_TYPE_FUNCTION:
+            if (!str_add_str(str, oper->operand_.function_args_.func_->string_)) {
+                ret = false;
             }
 
-            break ;
+            if (ret && !basic_expr_operand_array_to_str(str, oper->operand_.function_args_.func_->num_args_, oper->operand_.function_args_.args_))
+                ret = false;
     }
     
     return ret;
@@ -985,6 +1069,7 @@ static void reduce(expr_ctxt_t *ctxt)
     op1->operand_.operator_args_.right_ = pop_operand(ctxt) ;
     push_operand(ctxt, op1);
 }
+
 
 static const char *parse_expr(expr_ctxt_t *ctxt, const char *line, basic_operand_t **ret, basic_err_t *err)
 {
@@ -1063,9 +1148,10 @@ static const char *parse_expr(expr_ctxt_t *ctxt, const char *line, basic_operand
     return NULL;
 }
 
-const char *basic_parse_expr(const char *line, uint32_t *index, basic_err_t *err)
+
+static const char* parse_operand_top(const char* line, int argcnt, char **argnames, basic_operand_t** ret, basic_err_t* err)
 {
-    basic_operand_t *op ;
+    basic_operand_t* op;
     expr_ctxt_t* ctxt;
 
     ctxt = (expr_ctxt_t*)malloc(sizeof(expr_ctxt_t));
@@ -1076,10 +1162,21 @@ const char *basic_parse_expr(const char *line, uint32_t *index, basic_err_t *err
 
     ctxt->operand_top_ = 0;
     ctxt->operator_top_ = 0;
+    ctxt->argcnt_ = argcnt;
+    ctxt->argnames_ = argnames;
 
     line = parse_expr(ctxt, line, &op, err);
     free(ctxt);
 
+    *ret = op;
+    return line;
+}
+
+const char *basic_expr_parse(const char *line, int argcnt, char **argnames, uint32_t *index, basic_err_t *err)
+{
+    basic_operand_t* op;
+    
+    line = parse_operand_top(line, argcnt, argnames, &op, err);
     if (op == NULL)
         return NULL ;
 
@@ -1103,13 +1200,13 @@ static basic_expr_t *get_expr_from_index(uint32_t index)
     return NULL ;
 }
 
-bool basic_destroy_expr(uint32_t index)
+bool basic_expr_destroy(uint32_t index)
 {
     basic_expr_t *expr = get_expr_from_index(index) ;
     if (expr == NULL)
         return false ;
 
-    basic_destroy_operator(expr->top_) ;
+    basic_destroy_operand(expr->top_) ;
 
     if (exprs == expr) {
         exprs = expr->next_ ;
@@ -1268,7 +1365,7 @@ static basic_value_t *eval_operator(operator_table_t *oper, basic_operand_t *lef
 static basic_value_t *eval_node(basic_operand_t *op, basic_err_t *err)
 {
     basic_value_t *ret = NULL ;
-    int dims[BASIC_MAX_DIMS];
+    uint32_t dims[BASIC_MAX_DIMS];
 
     switch(op->type_)
     {
@@ -1283,7 +1380,14 @@ static basic_value_t *eval_node(basic_operand_t *op, basic_err_t *err)
         case BASIC_OPERAND_TYPE_VAR:
             {
                 if (op->operand_.var_.dimcnt_ == 0) {
-                    ret = clone_value(basic_var_get_value(op->operand_.var_.varindex_));
+                    basic_value_t* val = basic_var_get_value(op->operand_.var_.varindex_);
+                    if (val == NULL) {
+                        *err = BASIC_ERR_NO_SUCH_VARIABLE;
+                        ret = NULL;
+                    }
+                    else {
+                        ret = clone_value(val);
+                    }
                 }
                 else {
                     //
@@ -1291,8 +1395,8 @@ static basic_value_t *eval_node(basic_operand_t *op, basic_err_t *err)
                     // basic_value_t object.
                     //
                     for (int i = 0; i < op->operand_.var_.dimcnt_; i++) {
-                        uint32_t dimexpr = op->operand_.var_.dims_[i];
-                        basic_value_t *dimval = basic_eval_expr(dimexpr, err);
+                        basic_operand_t *dimexpr = op->operand_.var_.dims_[i];
+                        basic_value_t* dimval = eval_node(dimexpr, err);
                         if (dimval == NULL)
                             return NULL;
 
@@ -1308,12 +1412,37 @@ static basic_value_t *eval_node(basic_operand_t *op, basic_err_t *err)
                 }
             }
             break; 
+
+        case BASIC_OPERAND_TYPE_FUNCTION:
+            {
+                int argcnt = op->operand_.function_args_.func_->num_args_;
+                basic_value_t** argvals = (basic_value_t**)malloc(sizeof(basic_value_t*) * argcnt);
+                if (argvals == NULL) {
+                    *err = BASIC_ERR_OUT_OF_MEMORY;
+                    return NULL;
+                }
+
+                for (int i = 0; i < argcnt ; i++) {
+                    basic_operand_t* argexpr = op->operand_.function_args_.args_[i];
+                    argvals[i] = eval_node(argexpr, err);
+                    if (argvals[i] == NULL)
+                        return NULL;
+                }
+
+                ret = op->operand_.function_args_.func_->eval_(argcnt, argvals, err);
+                for (int i = 0; i < argcnt; i++) {
+                    basic_destroy_value(argvals[i]);
+                }
+
+                free(argvals);
+            }
+            break;
     }
 
     return ret ;
 }
 
-basic_value_t *basic_eval_expr(uint32_t index, basic_err_t *err)
+basic_value_t *basic_expr_eval(uint32_t index, basic_err_t *err)
 {
     basic_expr_t *expr = get_expr_from_index(index) ;
     assert(expr != NULL) ;
@@ -1330,7 +1459,7 @@ uint32_t basic_expr_to_string(uint32_t index)
     if (ret == STR_INVALID)
         return STR_INVALID;
 
-    if (!basic_oper_to_string(expr->top_, ret)) {
+    if (!basic_operand_to_string(expr->top_, ret)) {
         str_destroy(ret);
         return STR_INVALID ;
     }
@@ -1338,8 +1467,65 @@ uint32_t basic_expr_to_string(uint32_t index)
     return ret ;
 }
 
+bool basic_expr_bind_user_fn(char* fnname, uint32_t argcnt, char** argnames, uint32_t exprindex, uint32_t *fnindex, basic_err_t* err)
+{
+    basic_expr_user_fn_t* ufn = (basic_expr_user_fn_t*)malloc(sizeof(basic_expr_user_fn_t));
+    if (ufn == NULL)
+        return false;
+
+    ufn->index_ = next_user_fn_index++;
+    ufn->next_ = userfns;
+    userfns = ufn;
+
+    ufn->name_ = fnname;
+    ufn->argcnt_ = argcnt;
+    ufn->args_ = argnames;
+    ufn->expridx_ = exprindex;
+
+    *fnindex = ufn->index_;
+    return true;
+}
+
+basic_expr_user_fn_t* get_user_fn_from_index(uint32_t index)
+{
+    for (basic_expr_user_fn_t* fn = userfns; fn != NULL; fn = fn->next_)
+    {
+        if (fn->index_ == index)
+            return fn;
+    }
+
+    return NULL;
+}
+
+bool basic_expr_destroy_user_fn(uint32_t index)
+{
+    basic_expr_user_fn_t* ufn = get_user_fn_from_index(index);
+    if (ufn == NULL)
+        return false;
+
+    if (userfns == ufn) {
+        userfns = userfns->next_;
+    }
+    else {
+        basic_expr_user_fn_t* f = userfns;
+        while (f != NULL && f->next_ != ufn)
+            f = f->next_;
+
+        assert(f != NULL);
+        f->next_ = ufn->next_;
+    }
+
+    for (int i = 0; i < ufn->argcnt_; i++) {
+        free(ufn->args_[i]);
+    }
+    free(ufn->args_);
+    free(ufn);
+
+    return true;
+}
+
 #ifdef _DUMP_EXPRS_
-void basic_dump_exprs()
+void basic_expr_dump()
 {
     for (basic_expr_t* expr = exprs; expr != NULL; expr = expr->next_) {
         uint32_t exprhand = basic_expr_to_string(expr->index_);
