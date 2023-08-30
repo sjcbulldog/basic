@@ -14,6 +14,7 @@
 #ifndef DESKTOP
 #include <ff.h>
 #define _stricmp strcasecmp
+#define _strdup strdup
 #endif
 
 static const char *prompt = "Basic06> ";
@@ -133,6 +134,11 @@ void basic_destroy_line(basic_line_t *line)
             case BTOKEN_RUN: 
             case BTOKEN_CLEAR:
             case BTOKEN_FLIST:
+            case BTOKEN_CLS:
+                break;
+
+            case BTOKEN_DEF:
+                basic_userfn_destroy(getU32(line, 1));
                 break;
 
             default:
@@ -341,8 +347,19 @@ static const char* parse_def(basic_line_t* bline, const char* line, basic_err_t*
     //
     // Bind the expression to the function name
     //
-    if (!basic_expr_bind_user_fn(fnname, index, argnames, exprindex, err)) {
+    uint32_t fnindex ;
+    if (!basic_userfn_bind(fnname, index, argnames, exprindex, &fnindex, err)) {
         line = NULL;
+    }
+
+    if (!add_uint32(bline, fnindex)) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+        return NULL ;
+    }
+
+    if (!add_uint32(bline, exprindex)) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+        return NULL ;
     }
 
     return line;

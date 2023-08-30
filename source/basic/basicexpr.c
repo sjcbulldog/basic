@@ -27,7 +27,7 @@ static uint32_t next_expr_index = 1 ;
 static basic_expr_t *exprs = NULL ;
 
 static  uint32_t next_user_fn_index = 1;
-static expr_user_fn_t* userfns = NULL;
+static basic_expr_user_fn_t* userfns = NULL;
 
 operator_table_t operators[] = 
 {
@@ -1467,25 +1467,6 @@ uint32_t basic_expr_to_string(uint32_t index)
     return ret ;
 }
 
-bool basic_expr_bind_user_fn(char* fnname, uint32_t argcnt, char** argnames, uint32_t exprindex, uint32_t *fnindex, basic_err_t* err)
-{
-    basic_expr_user_fn_t* ufn = (basic_expr_user_fn_t*)malloc(sizeof(basic_expr_user_fn_t));
-    if (ufn == NULL)
-        return false;
-
-    ufn->index_ = next_user_fn_index++;
-    ufn->next_ = userfns;
-    userfns = ufn;
-
-    ufn->name_ = fnname;
-    ufn->argcnt_ = argcnt;
-    ufn->args_ = argnames;
-    ufn->expridx_ = exprindex;
-
-    *fnindex = ufn->index_;
-    return true;
-}
-
 basic_expr_user_fn_t* get_user_fn_from_index(uint32_t index)
 {
     for (basic_expr_user_fn_t* fn = userfns; fn != NULL; fn = fn->next_)
@@ -1497,7 +1478,56 @@ basic_expr_user_fn_t* get_user_fn_from_index(uint32_t index)
     return NULL;
 }
 
-bool basic_expr_destroy_user_fn(uint32_t index)
+bool basic_userfn_bind(char* fnname, uint32_t argcnt, char** argnames, uint32_t exprindex, uint32_t *fnindex, basic_err_t* err)
+{
+    basic_expr_user_fn_t* ufn = (basic_expr_user_fn_t*)malloc(sizeof(basic_expr_user_fn_t));
+    if (ufn == NULL)
+        return false;
+
+    ufn->index_ = next_user_fn_index++;
+    ufn->next_ = userfns;
+    userfns = ufn;
+
+    ufn->name_ = fnname;
+    ufn->argcnt_ = argcnt;
+    ufn->expridx_ = exprindex;
+
+    ufn->args_ = (char **)malloc(sizeof(char *) * argcnt);
+    if (ufn->args_ == NULL) {
+        free(ufn) ;
+        return NULL ;
+    }
+
+    for(int i = 0 ; i < argcnt ; i++) {
+        ufn->args_[i] = argnames[i] ;
+    }
+
+    if (fnindex != NULL)
+        *fnindex = ufn->index_;
+        
+    return true;
+}
+
+const char *basic_userfn_name(uint32_t index)
+{
+    basic_expr_user_fn_t* ufn = get_user_fn_from_index(index);
+    if (ufn == NULL)
+        return NULL ;
+
+    return ufn->name_ ;
+}
+
+char **basic_userfn_args(uint32_t index, uint32_t *argcnt)
+{
+    basic_expr_user_fn_t* ufn = get_user_fn_from_index(index);
+    if (ufn == NULL)
+        return NULL ;
+
+    *argcnt = ufn->argcnt_ ;
+    return ufn->args_ ;    
+}
+
+bool basic_userfn_destroy(uint32_t index)
 {
     basic_expr_user_fn_t* ufn = get_user_fn_from_index(index);
     if (ufn == NULL)
@@ -1518,6 +1548,8 @@ bool basic_expr_destroy_user_fn(uint32_t index)
     for (int i = 0; i < ufn->argcnt_; i++) {
         free(ufn->args_[i]);
     }
+
+    basic_expr_destroy(ufn->expridx_);
     free(ufn->args_);
     free(ufn);
 

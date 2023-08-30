@@ -100,5 +100,5 @@ typedef struct basic_expr_user_fn
     uint32_t argcnt_;
     char** args_;
     uint32_t expridx_;
-    struct expr_user_fn* next_;
+    struct basic_expr_user_fn* next_;
 } basic_expr_user_fn_t ;

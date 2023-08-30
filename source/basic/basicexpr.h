@@ -5,6 +5,8 @@
 #include <stdbool.h>
 #include <ctype.h>
 
+typedef struct basic_operand basic_operand_t ;
+
 typedef enum basic_value_type {
     BASIC_VALUE_TYPE_NUMBER = 1,
     BASIC_VALUE_TYPE_STRING = 2,
@@ -46,8 +48,12 @@ extern const char *basic_expr_parse(const char *line, int argcnt, char **argname
 extern basic_value_t *basic_expr_eval(uint32_t index, basic_err_t *err);
 extern bool basic_expr_destroy(uint32_t index) ;
 extern uint32_t basic_expr_to_string(uint32_t ) ;
-extern bool basic_expr_operand_array_to_str(uint32_t str, int cnt, void** args);
-extern bool basic_expr_bind_user_fn(const char *fnname, uint32_t argcnt, char **argnames, uint32_t exprindex, basic_err_t *err);
+extern bool basic_expr_operand_array_to_str(uint32_t str, int cnt, basic_operand_t** args);
+
+extern bool basic_userfn_bind(char *fnname, uint32_t argcnt, char **argnames, uint32_t exprindex, uint32_t *fnindex, basic_err_t *err);
+extern const char *basic_userfn_name(uint32_t index) ;
+extern char **basic_userfn_args(uint32_t index, uint32_t *argcnt) ;
+extern bool basic_userfn_destroy(uint32_t fnindex) ;
 
 #ifdef _DUMP_EXPRS_
 extern void basic_expr_dump();

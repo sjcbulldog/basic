@@ -217,6 +217,50 @@ static bool remToString(basic_line_t *line, uint32_t str)
     return str_add_str(str, line->extra_) ;
 }
 
+static bool defToString(basic_line_t *line, uint32_t str)
+{
+    uint32_t fnindex = getU32(line, 1) ;
+    uint32_t exprindex = getU32(line, 5) ;
+
+    const char *fname = basic_userfn_name(fnindex);
+    if (fname == NULL)
+        return false ;
+
+    uint32_t argcnt ;
+    char **argnames = basic_userfn_args(fnindex, &argcnt);
+    if (argnames == NULL)
+        return false ;
+
+    if (!str_add_str(str, fname))
+        return false ;
+
+    if (!str_add_str(str, "("))
+        return false ;
+
+    for(int i = 0 ; i < argcnt ; i++) 
+    {
+        if (i != 0) {
+            if (!str_add_str(str, ","))
+                return false ;            
+        }
+
+        if (!str_add_str(str, argnames[i]))
+            return false ;
+    }
+    
+    if (!str_add_str(str, ")="))
+        return false ;
+
+    uint32_t strh = basic_expr_to_string(exprindex) ;
+    if (!str_add_handle(str, strh))
+    {
+        str_destroy(strh) ;
+        return false ;
+    }
+
+    return true ;
+}
+
 static bool oneLineToString(basic_line_t *line, uint32_t str)
 {
     if (!str_add_str(str, basic_token_to_str(line->tokens_[0]))) {
@@ -262,6 +306,11 @@ static bool oneLineToString(basic_line_t *line, uint32_t str)
         case BTOKEN_LOAD:
             if (!loadSaveToString(line, str))
                 return false;
+            break ;
+
+        case BTOKEN_DEF:
+            if (!defToString(line, str))
+                return false ;
             break ;
 
         default:    // No additional args
@@ -428,8 +477,6 @@ void basic_list(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
         }
     }
 }
-
-
 
 void basic_clear(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
