@@ -8,6 +8,7 @@
 #include <assert.h>
 #include <string.h>
 #include <stdio.h>
+#include <malloc.h>
 
 extern basic_line_t *program ;
 extern uint32_t lineToString(basic_line_t *line) ;
@@ -27,7 +28,7 @@ void basic_save(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
     }    
 
     uint32_t expr = getU32(line, 1);
-    basic_value_t *value = basic_expr_eval(expr, err) ;
+    basic_value_t *value = basic_expr_eval(expr, 0, NULL, NULL, err) ;
     if (value == NULL)
         return ;
 
@@ -86,7 +87,7 @@ void basic_load(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
     }
 
     uint32_t expr = getU32(line, 1);
-    basic_value_t *value = basic_expr_eval(expr, err) ;
+    basic_value_t *value = basic_expr_eval(expr,  0, NULL, NULL, err) ;
     if (value == NULL)
         return ;
 

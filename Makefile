@@ -101,30 +101,13 @@ SOURCES=
 # directories (without a leading -I).
 INCLUDES=
 
-ifeq ($(findstring FREERTOS, $(COMPONENTS)), FREERTOS)
 # Custom configuration of mbedtls library.
 MBEDTLSFLAGS=MBEDTLS_USER_CONFIG_FILE='"mbedtls_user_config.h"'
-DEFINES+=$(MBEDTLSFLAGS) SECURE_SOCKETS_THREAD_STACKSIZE=12*1024
-endif
+DEFINES+=$(MBEDTLSFLAGS) SECURE_SOCKETS_THREAD_STACKSIZE=12*1024 _PRINT_EVALS_
 
 # Add additional defines to the build process (without a leading -D).
 DEFINES+= CYBSP_WIFI_CAPABLE CY_RETARGET_IO_CONVERT_LF_TO_CRLF CY_RTOS_AWARE
 
-ifeq ($(findstring THREADX, $(COMPONENTS)), THREADX)
-
-# Conditionally include the NetX Duo and NetX Secure user configuraion files.
-DEFINES+=NX_INCLUDE_USER_DEFINE_FILE
-DEFINES+=NX_SECURE_INCLUDE_USER_DEFINE_FILE
-
-# PSoC6 uses 7 priority levels with 7 being the lowest priority. 
-# The PendSV interrupt used for scheduling runs at priority 7.
-# If there are no runnable tasks the system will stay in the PendSV
-# handler until there is a runnable thread. Other priority 7 interrupts
-# will be held off during this time so we need to make sure the default
-# HAL interrupt priority is higher that 7.
-DEFINES+=CYHAL_ISR_PRIORITY_DEFAULT=6
-
-endif
 
 # Select softfp or hardfp floating point. Default is softfp.
 VFP_SELECT=
@@ -161,10 +144,6 @@ PREBUILD=
 
 # Custom post-build commands to run.
 POSTBUILD=
-
-# To change the default policy
-CY_SECURE_POLICY_NAME=policy_single_CM0_CM4_smif_swap
-
 
 ################################################################################
 # Paths

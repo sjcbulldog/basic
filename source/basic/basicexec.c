@@ -510,7 +510,7 @@ void basic_print(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
         uint32_t expr = getU32(line, index) ;
         index += 4 ;
 
-        basic_value_t *value = basic_expr_eval(expr, err);
+        basic_value_t *value = basic_expr_eval(expr, 0, NULL, NULL, err);
         if (value == NULL)
             return ;
 
@@ -563,7 +563,7 @@ void basic_let_simple(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn
     uint32_t varindex = getU32(line, 1) ;
     uint32_t exprindex = getU32(line, 5) ;
 
-    basic_value_t *value = basic_expr_eval(exprindex, err) ;
+    basic_value_t *value = basic_expr_eval(exprindex, 0, NULL, NULL, err) ;
     if (value == NULL)
         return ;
 
@@ -590,7 +590,7 @@ void basic_let_array(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
         uint32_t exprindex = getU32(line, index) ;
         index += 4 ;
 
-        basic_value_t* value = basic_expr_eval(exprindex, err);
+        basic_value_t* value = basic_expr_eval(exprindex, 0, NULL, NULL, err);
         if (value == NULL)
             return;
 
@@ -609,7 +609,7 @@ void basic_let_array(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 
     uint32_t exprindex = getU32(line, index) ;
 
-    basic_value_t *value = basic_expr_eval(exprindex, err) ;
+    basic_value_t *value = basic_expr_eval(exprindex,  0, NULL, NULL, err) ;
     if (value == NULL)
         return ;
 
@@ -707,7 +707,7 @@ static void exec_one_statement(basic_line_t *line, exec_context_t *nextline, bas
 
         case BTOKEN_FLIST:
             basic_flist(line, err, outfn) ;
-            break ;            
+            break ;    
 
         case BTOKEN_LET_SIMPLE:
             basic_let_simple(line, err, outfn) ;
@@ -767,7 +767,11 @@ static void exec_one_statement(basic_line_t *line, exec_context_t *nextline, bas
 
         case BTOKEN_LOAD:
             basic_load(line, err, outfn) ;
-            break ;        
+            break ;     
+
+        case BTOKEN_DEF:
+            *err = BASIC_ERR_NONE ;
+            break ;   
 
         default:
             *err = BASIC_ERR_UNKNOWN_KEYWORD ;

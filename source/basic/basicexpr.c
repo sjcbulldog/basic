@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <assert.h>
+#include <malloc.h>
 
 #ifndef DESKTOP
 #define _stricmp strcasecmp
@@ -16,7 +17,8 @@ static bool crypto_inited = false ;
 static cyhal_trng_t trng_obj ;
 #endif
 
-static basic_value_t *eval_node(basic_operand_t *op, basic_err_t *err) ;
+static basic_expr_user_fn_t* get_user_fn_from_name(const char *name) ;
+static basic_value_t *eval_node(basic_operand_t *op, int cntv, char **names, basic_value_t **values, basic_err_t *err) ;
 static const char* parse_operand_top(const char* line, int argcntg, char **argnames, basic_operand_t** ret, basic_err_t* err);
 static bool basic_operand_to_string(basic_operand_t* oper, uint32_t str);
 
@@ -39,11 +41,13 @@ operator_table_t operators[] =
 
 static basic_value_t* func_int(int count, basic_value_t** args, basic_err_t *err);
 static basic_value_t* func_rnd(int count, basic_value_t** args, basic_err_t *err);
+static basic_value_t *func_mem(int count, basic_value_t** args, basic_err_t *err) ;
 
 function_table_t functions[] =
 {
     { 1, "INT", func_int },
     { 1, "RND", func_rnd },
+    { 1, "MEM", func_mem },
 };
 
 const char* basic_expr_parse_dims_const(const char* line, uint32_t* dimcnt, uint32_t* dims, basic_err_t* err)
@@ -616,6 +620,20 @@ static void basic_destroy_operand(basic_operand_t *operand)
             }
             free(operand->operand_.function_args_.args_);
             break;
+
+        case BASIC_OPERAND_TYPE_USERFN:
+            for (int i = 0; i < operand->operand_.userfn_args_.func_->argcnt_; i++) {
+                basic_destroy_operand(operand->operand_.userfn_args_.args_[i]);
+            }
+            free(operand->operand_.userfn_args_.args_);
+            break;    
+
+        case BASIC_OPERAND_TYPE_BOUNDV:
+            break; 
+
+        default:
+            assert(false) ;
+            break ;        
     }
 }
 
@@ -670,7 +688,7 @@ static basic_operand_t *create_var_operand(uint32_t varindex, int dimcnt, basic_
     return ret ;    
 }
 
-static basic_operand_t* create_fun_operand(function_table_t* fun)
+static basic_operand_t* create_fun_operand(function_table_t *fun)
 {
     basic_operand_t* ret = (basic_operand_t*)malloc(sizeof(basic_operand_t));
     if (ret == NULL)
@@ -683,9 +701,39 @@ static basic_operand_t* create_fun_operand(function_table_t* fun)
         free(ret);
         return NULL;
     }
+
     memset(ret->operand_.function_args_.args_, 0, sizeof(basic_operand_t*) * fun->num_args_);
     return ret;
 }
+
+static basic_operand_t* create_userfn_operand(basic_expr_user_fn_t *ufn)
+{
+    basic_operand_t* ret = (basic_operand_t*)malloc(sizeof(basic_operand_t));
+    if (ret == NULL)
+        return NULL;
+
+    ret->type_ = BASIC_OPERAND_TYPE_USERFN;
+    ret->operand_.userfn_args_.func_ = ufn ;
+    ret->operand_.userfn_args_.args_ = (basic_operand_t**)malloc(sizeof(basic_operand_t*) * ufn->argcnt_);
+    if (ret->operand_.userfn_args_.args_ == NULL) {
+        free(ret);
+        return NULL;
+    }
+
+    memset(ret->operand_.function_args_.args_, 0, sizeof(basic_operand_t*) * ufn->argcnt_);
+    return ret;
+}
+
+static basic_operand_t* create_bound_value(const char *v)
+{
+    basic_operand_t* ret = (basic_operand_t*)malloc(sizeof(basic_operand_t));
+    if (ret == NULL)
+        return NULL;
+
+    ret->type_ = BASIC_OPERAND_TYPE_BOUNDV ;
+    ret->operand_.boundv_ = v ;
+    return ret ;
+} 
 
 static function_table_t* lookup_function(const char* name)
 {
@@ -696,6 +744,57 @@ static function_table_t* lookup_function(const char* name)
     }
 
     return NULL;
+}
+
+static basic_value_t *func_mem(int count, basic_value_t **args, basic_err_t *err)
+{
+    if (count != 1) {
+        *err = BASIC_ERR_ARG_COUNT_MISMATCH ;
+        return NULL ;
+    }
+
+    if (args[0]->type_ != BASIC_VALUE_TYPE_NUMBER) {
+        *err = BASIC_ERR_TYPE_MISMATCH ;
+        return NULL ;
+    }
+
+    int mtype = (int)args[0]->value.nvalue_ ;
+
+    if (mtype != 1 && mtype != 2 && mtype != 3) {
+        *err = BASIC_ERR_INVALID_ARG_VALUE ;
+        return NULL ;
+    }
+
+    struct mallinfo mall_info = mallinfo();
+
+    extern uint8_t __HeapBase;  /* Symbol exported by the linker. */
+    extern uint8_t __HeapLimit; /* Symbol exported by the linker. */
+
+    uint8_t* heap_base = (uint8_t *)&__HeapBase;
+    uint8_t* heap_limit = (uint8_t *)&__HeapLimit;
+    uint32_t heap_size = (uint32_t)(heap_limit - heap_base);    
+
+    int ret = 0 ;
+    switch(mtype)
+    {
+        case 1:
+            ret = heap_size ;
+            break ;
+        case 2:
+            ret = mall_info.uordblks ;
+            break ;
+        case 3:
+            ret = mall_info.arena ;
+            break; 
+    }
+
+    basic_value_t *v = create_number_value(ret);
+    if (v == NULL) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+        return NULL ;
+    }
+
+    return v ;
 }
 
 static basic_value_t* func_rnd(int count, basic_value_t** args, basic_err_t* err)
@@ -748,9 +847,22 @@ static basic_value_t* func_int(int count, basic_value_t** args, basic_err_t *err
     return create_number_value((int)v->value.nvalue_);
 }
 
+static int match_def_local(expr_ctxt_t *ctxt)
+{
+    if (ctxt->argcnt_ > 0) {
+        for(int i = 0 ; i < ctxt->argcnt_ ; i++) {
+            if (_stricmp(ctxt->parsebuffer, ctxt->argnames_[i]) == 0)
+                return i ;
+        }
+    }
+
+    return -1 ;
+}
+
 static const char *parse_operand(expr_ctxt_t *ctxt, const char *line, basic_operand_t **operand, basic_err_t *err)
 {
     int bind = 0 ;
+    int localv = 0 ;
 
     line = skipSpaces(line);
     if (*line == '(') {
@@ -848,6 +960,7 @@ static const char *parse_operand(expr_ctxt_t *ctxt, const char *line, basic_oper
         *operand = create_const_operand(value) ;
     }
     else if (isalpha((uint8_t)*line)) {
+
         while (*line && isalpha((uint8_t)*line) && bind < BASIC_PARSE_BUFFER_LENGTH) {
             ctxt->parsebuffer[bind++] = toupper(*line++) ;
             if (bind > BASIC_MAX_VARIABLE_LENGTH) {
@@ -858,7 +971,6 @@ static const char *parse_operand(expr_ctxt_t *ctxt, const char *line, basic_oper
         ctxt->parsebuffer[bind] = '\0';
 
         function_table_t* fun = lookup_function(ctxt->parsebuffer);
-
         if (fun) {
             line = skipSpaces(line);
             if (*line != '(') {
@@ -885,27 +997,64 @@ static const char *parse_operand(expr_ctxt_t *ctxt, const char *line, basic_oper
             line++;
         }
         else {
-            //
-            // This is a variable
-            //
-            line = skipSpaces(line);
-            uint32_t dimcnt = 0;
-            basic_operand_t *dims[BASIC_MAX_DIMS];
-
-            if (*line == '(') {
-                line = basic_expr_parse_dims_operands(line, &dimcnt, dims, err);
-                if (line == NULL)
+            basic_expr_user_fn_t *ufn = get_user_fn_from_name(ctxt->parsebuffer) ;
+            if (ufn) {
+                line = skipSpaces(line);
+                if (*line != '(') {
+                    *err = BASIC_ERR_EXPECTED_OPENPAREN;
                     return NULL;
+                }
+                line++;
+                *operand = create_userfn_operand(ufn);
+                if (*operand == NULL) {
+                    *err = BASIC_ERR_OUT_OF_MEMORY;
+                    return NULL;
+                }
+
+                for (int i = 0; i < ufn->argcnt_; i++) {
+                    line = parse_operand_top(line, 0, NULL, &(*operand)->operand_.userfn_args_.args_[i], err);
+                    if (line == NULL)
+                        return NULL;
+                }
+
+                if (*line != ')') {
+                    *err = BASIC_ERR_EXPECTED_CLOSEPAREN;
+                    return NULL;
+                }
+                line++;                
             }
+            else if ((localv = match_def_local(ctxt)) != -1)
+            {
+                *operand = create_bound_value(ctxt->argnames_[localv]) ;
+            } 
+            else 
+            {
+                //
+                // This is a variable
+                //
+                line = skipSpaces(line);
+                uint32_t dimcnt = 0;
+                basic_operand_t *dims[BASIC_MAX_DIMS];
 
-            uint32_t index;
+                if (*line == '(') {
+                    line = basic_expr_parse_dims_operands(line, &dimcnt, dims, err);
+                    if (line == NULL)
+                        return NULL;
+                }
 
-            if (!basic_var_get(ctxt->parsebuffer, &index, err)) {
-                return NULL;
+                uint32_t index;
+
+                if (!basic_var_get(ctxt->parsebuffer, &index, err)) {
+                    return NULL;
+                }
+
+                *operand = create_var_operand(index, dimcnt, dims);
             }
-
-            *operand = create_var_operand(index, dimcnt, dims);
         }
+    }
+    else {
+        *err = BASIC_ERR_EXPECTED_IDENTIFIER ;
+        line = NULL ;
     }
 
     return line ;
@@ -1002,6 +1151,22 @@ static bool basic_operand_to_string(basic_operand_t *oper, uint32_t str)
 
             if (ret && !basic_expr_operand_array_to_str(str, oper->operand_.function_args_.func_->num_args_, oper->operand_.function_args_.args_))
                 ret = false;
+            break ;
+
+        case BASIC_OPERAND_TYPE_USERFN:
+            if (!str_add_str(str, oper->operand_.userfn_args_.func_->name_)) {
+                ret = false;
+            }
+
+            if (ret && !basic_expr_operand_array_to_str(str, oper->operand_.userfn_args_.func_->argcnt_, oper->operand_.userfn_args_.args_))
+                ret = false;
+            break ;
+
+        case BASIC_OPERAND_TYPE_BOUNDV:
+            if (!str_add_str(str, oper->operand_.boundv_))
+                ret = false ;
+            break ;
+
     }
     
     return ret;
@@ -1328,15 +1493,15 @@ static basic_value_t *eval_divide(basic_value_t *left, basic_value_t *right, bas
     return ret;
 }
 
-static basic_value_t *eval_operator(operator_table_t *oper, basic_operand_t *left, basic_operand_t *right, basic_err_t *err)
+static basic_value_t *eval_operator(operator_table_t *oper, int vcnt, char **names, basic_value_t **values, basic_operand_t *left, basic_operand_t *right, basic_err_t *err)
 {
     basic_value_t* ret = NULL;
 
-    basic_value_t *leftval = eval_node(left, err) ;
+    basic_value_t *leftval = eval_node(left,  vcnt, names, values, err) ;
     if (leftval == NULL)
         return NULL ;
 
-    basic_value_t *rightval = eval_node(right, err) ;
+    basic_value_t *rightval = eval_node(right,  vcnt, names, values, err) ;
     if (rightval == NULL) {
         basic_destroy_value(leftval) ;
         return NULL ;
@@ -1362,7 +1527,18 @@ static basic_value_t *eval_operator(operator_table_t *oper, basic_operand_t *lef
     return ret;
 }
 
-static basic_value_t *eval_node(basic_operand_t *op, basic_err_t *err)
+static basic_value_t *lookup_userfn_value(const char *name, uint32_t cnt, char **names, basic_value_t **values)
+{
+    for(int i = 0 ; i < cnt ; i++) {
+        if (_stricmp(name, names[i]) == 0) {
+            return values[i] ;
+        }
+    }
+
+    return NULL ;
+}
+
+static basic_value_t *eval_node(basic_operand_t *op, int vcnt, char **names, basic_value_t **values, basic_err_t *err)
 {
     basic_value_t *ret = NULL ;
     uint32_t dims[BASIC_MAX_DIMS];
@@ -1374,6 +1550,7 @@ static basic_value_t *eval_node(basic_operand_t *op, basic_err_t *err)
             break ;
         case BASIC_OPERAND_TYPE_OPERATOR:
             ret = eval_operator(op->operand_.operator_args_.operator_, 
+                                vcnt, names, values,
                                 op->operand_.operator_args_.left_,
                                 op->operand_.operator_args_.right_, err) ;
             break; 
@@ -1396,13 +1573,13 @@ static basic_value_t *eval_node(basic_operand_t *op, basic_err_t *err)
                     //
                     for (int i = 0; i < op->operand_.var_.dimcnt_; i++) {
                         basic_operand_t *dimexpr = op->operand_.var_.dims_[i];
-                        basic_value_t* dimval = eval_node(dimexpr, err);
+                        basic_value_t* dimval = eval_node(dimexpr,  0, NULL, NULL, err);
                         if (dimval == NULL)
-                            return NULL;
+                            return NULL ;
 
-                        if (dimval->type_ == BASIC_VALUE_TYPE_STRING) {
+                        if (ret != NULL && dimval->type_ == BASIC_VALUE_TYPE_STRING) {
                             *err = BASIC_ERR_TYPE_MISMATCH;
-                            return NULL;
+                            return NULL ;
                         }
 
                         dims[i] = (int)dimval->value.nvalue_;
@@ -1424,7 +1601,7 @@ static basic_value_t *eval_node(basic_operand_t *op, basic_err_t *err)
 
                 for (int i = 0; i < argcnt ; i++) {
                     basic_operand_t* argexpr = op->operand_.function_args_.args_[i];
-                    argvals[i] = eval_node(argexpr, err);
+                    argvals[i] = eval_node(argexpr,  0, NULL, NULL, err);
                     if (argvals[i] == NULL)
                         return NULL;
                 }
@@ -1437,17 +1614,66 @@ static basic_value_t *eval_node(basic_operand_t *op, basic_err_t *err)
                 free(argvals);
             }
             break;
+
+        case BASIC_OPERAND_TYPE_USERFN:
+            {
+                int argcnt = op->operand_.userfn_args_.func_->argcnt_;
+                basic_value_t** argvals = (basic_value_t**)malloc(sizeof(basic_value_t*) * argcnt);
+                if (argvals == NULL) {
+                    *err = BASIC_ERR_OUT_OF_MEMORY;
+                    return NULL;
+                }
+
+                for (int i = 0; i < argcnt ; i++) {
+                    basic_operand_t* argexpr = op->operand_.userfn_args_.args_[i];
+                    argvals[i] = eval_node(argexpr,  0, NULL, NULL, err);
+                    if (argvals[i] == NULL)
+                        return NULL;
+                }
+
+                ret = basic_expr_eval(op->operand_.userfn_args_.func_->expridx_,
+                                      op->operand_.userfn_args_.func_->argcnt_,
+                                      op->operand_.userfn_args_.func_->args_, 
+                                      argvals, err);
+                for (int i = 0; i < argcnt; i++) {
+                    basic_destroy_value(argvals[i]);
+                }
+                free(argvals);
+            }
+            break ;
+
+        case BASIC_OPERAND_TYPE_BOUNDV:
+            {
+                basic_value_t *v = lookup_userfn_value(op->operand_.boundv_, vcnt, names, values) ;
+                if (v == NULL) {
+                    *err = BASIC_ERR_UNBOUND_LOCAL_VAR ;
+                    ret = NULL ;
+                }
+                else {
+                    ret = clone_value(v);
+                }
+            }
+            break ;        
     }
+
+#ifdef _PRINT_EVALS_
+    uint32_t strh = str_create() ;
+    basic_operand_to_string(op, strh);
+    str_add_str(strh, "=");
+    value_to_string(strh, ret);
+    const char *strval = str_value(strh);
+    printf("%s\n", strval);
+#endif
 
     return ret ;
 }
 
-basic_value_t *basic_expr_eval(uint32_t index, basic_err_t *err)
+basic_value_t *basic_expr_eval(uint32_t index, uint32_t cntv, char **names, basic_value_t **values, basic_err_t *err)
 {
     basic_expr_t *expr = get_expr_from_index(index) ;
     assert(expr != NULL) ;
 
-    return eval_node(expr->top_, err) ;
+    return eval_node(expr->top_, cntv, names, values, err) ;
 }
 
 uint32_t basic_expr_to_string(uint32_t index)
@@ -1473,6 +1699,17 @@ basic_expr_user_fn_t* get_user_fn_from_index(uint32_t index)
     {
         if (fn->index_ == index)
             return fn;
+    }
+
+    return NULL;
+}
+
+static basic_expr_user_fn_t* get_user_fn_from_name(const char *name)
+{
+    for (basic_expr_user_fn_t* fn = userfns; fn != NULL; fn = fn->next_)
+    {
+        if (_stricmp(name, fn->name_) == 0)
+            return fn ;
     }
 
     return NULL;

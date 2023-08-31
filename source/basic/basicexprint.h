@@ -8,6 +8,8 @@
 #define BASIC_OPERAND_TYPE_CONST        (2)
 #define BASIC_OPERAND_TYPE_OPERATOR     (3)
 #define BASIC_OPERAND_TYPE_FUNCTION     (4)
+#define BASIC_OPERAND_TYPE_USERFN       (5)
+#define BASIC_OPERAND_TYPE_BOUNDV       (6)
 
 typedef enum operator_type {
     BASIC_OPERATOR_PLUS = 1,
@@ -46,11 +48,27 @@ typedef struct function_table
     basic_value_t* (*eval_)(int count, basic_value_t **args, basic_err_t *err);
 } function_table_t;
 
+typedef struct basic_expr_user_fn
+{
+    uint32_t index_;
+    char* name_;
+    uint32_t argcnt_;
+    char** args_;
+    uint32_t expridx_;
+    struct basic_expr_user_fn* next_;
+} basic_expr_user_fn_t ;
+
 typedef struct basic_function_args
 {
     function_table_t* func_;
     basic_operand_t** args_;
 } basic_function_args_t ;
+
+typedef struct user_function_args
+{
+    basic_expr_user_fn_t* func_;
+    basic_operand_t** args_;
+} user_function_args_t ;
 
 typedef struct basic_operand
 {
@@ -60,6 +78,8 @@ typedef struct basic_operand
         basic_value_t *const_value_ ;
         basic_operator_args_t operator_args_ ;
         basic_function_args_t function_args_;
+        user_function_args_t userfn_args_ ;
+        const char *boundv_ ;
     } operand_ ;
 } basic_operand_t ;
 
@@ -93,12 +113,3 @@ typedef struct expr_ctxt
     char** argnames_;
 } expr_ctxt_t;
 
-typedef struct basic_expr_user_fn
-{
-    uint32_t index_;
-    char* name_;
-    uint32_t argcnt_;
-    char** args_;
-    uint32_t expridx_;
-    struct basic_expr_user_fn* next_;
-} basic_expr_user_fn_t ;

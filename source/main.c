@@ -56,7 +56,7 @@ int main()
     cyhal_gpio_write(CYBSP_USER_LED, CYBSP_LED_STATE_ON);
 
     /* Create the tasks. */
-    xTaskCreate(control_task, "ControlTask", 8 * 1024, NULL, 6, NULL);
+    xTaskCreate(control_task, "ControlTask", 1024, NULL, 6, NULL);
 
     /* Start the FreeRTOS scheduler. */
     vTaskStartScheduler();

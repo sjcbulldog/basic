@@ -9,19 +9,19 @@
 #include <FreeRTOS.h>
 #include <task.h>
 
-#define NETWORKCONN_TASK_STACK_SIZE         (5 * 1024)
+#define NETWORKCONN_TASK_STACK_SIZE         (10 * 1024)
 #define NETWORKCONN_TASK_PRIORITY           (2)
 
-#define NETWORKSVC_TASK_STACK_SIZE          (8 * 1024)
+#define NETWORKSVC_TASK_STACK_SIZE          (10 * 1024)
 #define NETWORKSVC_TASK_PRIORITY            (3)
 
-#define FSINIT_TASK_STACK_SIZE              (5 * 1024)
+#define FSINIT_TASK_STACK_SIZE              (10 * 1024)
 #define FSINIT_TASK_PRIORITY                (2)
 
-#define UART_TASK_STACK_SIZE                (5 * 1024)
-#define UART_TASK_PRIORITY                  (2)
+#define UART_TASK_STACK_SIZE                (10 * 1024)
+#define UART_TASK_PRIORITY                  (3)
 
-#define BASIC_TASK_STACK_SIZE               (5 * 1024)
+#define BASIC_TASK_STACK_SIZE               (20 * 1024)
 #define BASIC_TASK_PRIORITY                 (2)
 
 static TaskHandle_t fs_init_handle ;
@@ -64,11 +64,13 @@ void control_task(void *param)
             vTaskDelay(500/portTICK_PERIOD_MS);
         }
 
+#ifdef NOTYET        
         printf("  Starting telnet connection task\n");
         if (xTaskCreate(network_service_task, "NetworkService", NETWORKCONN_TASK_STACK_SIZE, NULL, NETWORKCONN_TASK_PRIORITY, &netsvc_handle) != pdPASS)
         {
             printf("    - could not start telnet connection task\n") ;
         }
+#endif
     }
 
     if (useUART) {
