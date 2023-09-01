@@ -103,14 +103,19 @@ INCLUDES=
 
 # Custom configuration of mbedtls library.
 MBEDTLSFLAGS=MBEDTLS_USER_CONFIG_FILE='"mbedtls_user_config.h"'
-DEFINES+=$(MBEDTLSFLAGS) SECURE_SOCKETS_THREAD_STACKSIZE=12*1024 _PRINT_EVALS_
+DEFINES+=$(MBEDTLSFLAGS) SECURE_SOCKETS_THREAD_STACKSIZE=16*1024
+
+#
+# Add this to see experssion tree node level evaluations 
+# DEFINES+=_PRINT_EVALS_
+#
 
 # Add additional defines to the build process (without a leading -D).
 DEFINES+= CYBSP_WIFI_CAPABLE CY_RETARGET_IO_CONVERT_LF_TO_CRLF CY_RTOS_AWARE
 
 
 # Select softfp or hardfp floating point. Default is softfp.
-VFP_SELECT=
+VFP_SELECT=softfp
 
 # Additional / custom C compiler flags.
 #

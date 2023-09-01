@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+#include <malloc.h>
 
 extern void basic_save(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn) ;
 extern void basic_load(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn) ;
@@ -17,6 +18,7 @@ static const char *clearscreen = "\x1b[2J\x1b[;H";
 static const char *spaces = "        " ;
 static int space_count = 8 ;
 static bool trace = false;
+static for_stack_entry_t *forstack = NULL ;
 
 static void putSpaces(basic_out_fn_t outfn, int count)
 {
@@ -28,6 +30,24 @@ static void putSpaces(basic_out_fn_t outfn, int count)
 
         (*outfn)(spaces, howmany) ;
         count -= howmany ;
+    }
+}
+
+static forwardOneStmt(exec_context_t *ctxt)
+{
+    if (ctxt->child_ == NULL) {
+        if (ctxt->line_->children_) {
+            ctxt->child_ = ctxt->line_->children_ ;
+        }
+        else {
+            ctxt->line_ = ctxt->line_->next_ ;
+        }
+    }
+    else {
+        ctxt->child_ = ctxt->child_->next_ ;
+        if (ctxt->child_ == NULL) {
+            ctxt->line_ = ctxt->line_->next_ ;
+        }
     }
 }
 
@@ -217,6 +237,70 @@ static bool remToString(basic_line_t *line, uint32_t str)
     return str_add_str(str, line->extra_) ;
 }
 
+static bool nextToString(basic_line_t *line, uint32_t str)
+{
+    if (line->count_ == 5) {
+        uint32_t idx = getU32(line, 1);
+        const char* varname = basic_var_get_name(idx) ;
+        if (!str_add_str(str, varname)) {
+            return false; 
+        }
+    }
+    return true ;
+}
+
+static bool forToString(basic_line_t *line, uint32_t str)
+{
+    uint32_t idx, strh ;
+    int index = 1 ;
+
+    idx = getU32(line, index);
+    const char* varname = basic_var_get_name(idx) ;
+    if (!str_add_str(str, varname))
+        return false;    
+    index += 4 ;
+
+    if (!str_add_str(str, "="))
+        return false ;
+
+    idx = getU32(line, index);
+    strh = basic_expr_to_string(idx);
+    if (!str_add_handle(str, strh)) {
+        str_destroy(strh) ;
+        return false;
+    }
+    str_destroy(strh);
+    index += 4 ;
+
+    if (!str_add_str(str, "TO"))
+        return false ;    
+
+    idx = getU32(line, index);
+    strh = basic_expr_to_string(idx);
+    if (!str_add_handle(str, strh)) {
+        str_destroy(strh) ;
+        return false;
+    }
+    str_destroy(strh);
+    index += 4 ;
+
+    if (index < line->count_) {
+        if (!str_add_str(str, "STEP"))
+            return false ;   
+
+        idx = getU32(line, index);
+        strh = basic_expr_to_string(idx);
+        if (!str_add_handle(str, strh)) {
+            str_destroy(strh) ;
+            return false;
+        }
+        str_destroy(strh);
+        index += 4 ;      
+    }
+
+    return true ;
+}
+
 static bool defToString(basic_line_t *line, uint32_t str)
 {
     uint32_t fnindex = getU32(line, 1) ;
@@ -310,6 +394,16 @@ static bool oneLineToString(basic_line_t *line, uint32_t str)
 
         case BTOKEN_DEF:
             if (!defToString(line, str))
+                return false ;
+            break ;
+
+        case BTOKEN_FOR:
+            if (!forToString(line, str))
+                return false ;
+            break ;
+
+        case BTOKEN_NEXT:
+            if (!nextToString(line, str))
                 return false ;
             break ;
 
@@ -435,6 +529,7 @@ void basic_run(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
     exec_context_t context ;
     context.line_ = program ;
     context.child_ = NULL ;
+    context.next_ = NULL ;
 
     *err = basic_exec_line(&context, outfn) ;
 }
@@ -662,10 +757,100 @@ void basic_else(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, 
     return ;
 }
 
-void basic_for(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+void basic_for(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, basic_out_fn_t outfn)
 {
-    *err = BASIC_ERR_NONE ;    
+    uint32_t varindex, expridx ;
+
+    varindex = getU32(line, 1) ;
+    expridx = getU32(line, 5);
+
+    basic_value_t *start = basic_expr_eval(expridx, 0, NULL, NULL, err);
+    if (start == NULL)
+        return ;
+
+    if (!basic_var_set_value(varindex, start, err))
+        return ;
+
+    for_stack_entry_t *c = (for_stack_entry_t *)malloc(sizeof(for_stack_entry_t)) ;
+    if (c == NULL) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+        return ;
+    }
+
+    c->varidx_ = varindex ;
+    c->endidx_ = getU32(line, 9) ;
+    if (line->count_ > 13) {
+        c->stepidx_ = getU32(line, 13);
+    }
+    else {
+        c->stepidx_ = 0xffffffff ;
+    }
+
+    c->context_.line_ = nextline->line_ ;
+    if (line != nextline->line_)
+        c->context_.child_ = line ;
+    else
+        c->context_.child_ = NULL ;
+
+
+    c->next_ = forstack ;
+    forstack = c ;
+
+    *err = BASIC_ERR_NONE ;
     return ;
+}
+
+void basic_next(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, basic_out_fn_t outfn)
+{
+    const char *varname = NULL ;
+    double step = 1.0 ;
+
+    if (forstack == NULL) {
+        *err = BASIC_ERR_UNMATCHED_NEXT ;
+        return ;
+    }
+
+    basic_value_t *endval = basic_expr_eval(forstack->endidx_, 0, NULL, NULL, err) ;
+    if (endval == NULL)
+        return ;
+
+    if (endval->type_ != BASIC_VALUE_TYPE_NUMBER) {
+        *err = BASIC_ERR_TYPE_MISMATCH ;
+        return ;
+    }        
+
+    if (forstack->stepidx_ != 0xffffffff) {
+        basic_value_t *stepval = basic_expr_eval(forstack->stepidx_, 0, NULL, NULL, err) ;
+        if (stepval == NULL)
+            return ;
+
+        if (stepval->type_ != BASIC_VALUE_TYPE_NUMBER) {
+            *err = BASIC_ERR_TYPE_MISMATCH ;
+            return ;
+        }
+
+        step = stepval->value.nvalue_ ;
+    }
+
+    basic_value_t *loopval = basic_var_get_value(forstack->varidx_) ;
+    if (loopval->type_ != BASIC_VALUE_TYPE_NUMBER) {
+        *err = BASIC_ERR_TYPE_MISMATCH ;
+        return ;
+    }
+
+    if ((step < 0.0 && loopval->value.nvalue_ < endval->value.nvalue_) ||
+        (step > 0.0 && loopval->value.nvalue_ > endval->value.nvalue_)) {
+
+        // The loop is done
+    }
+    else {
+        if (!basic_var_set_value_number(forstack->varidx_, loopval->value.nvalue_ + step, err))
+            return ;
+
+        nextline->line_ = forstack->context_.line_ ;
+        nextline->child_ = forstack->context_.child_ ;
+        forwardOneStmt(nextline) ;
+    }
 }
 
 void basic_to(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
@@ -686,7 +871,7 @@ void basic_gosub(basic_line_t *line, exec_context_t *nextline, basic_err_t *err,
     return ;
 }
 
-static void exec_one_statement(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, basic_out_fn_t outfn)
+static void exec_one_statement(basic_line_t *line, exec_context_t *current, exec_context_t *nextline, basic_err_t *err, basic_out_fn_t outfn)
 {
     switch(line->tokens_[0]) {
         case BTOKEN_CLS:
@@ -746,7 +931,11 @@ static void exec_one_statement(basic_line_t *line, exec_context_t *nextline, bas
             break ;
 
         case BTOKEN_FOR:
-            basic_for(line, err, outfn) ;
+            basic_for(line, current, err, outfn) ;
+            break ;
+
+        case BTOKEN_NEXT:
+            basic_next(line, nextline, err, outfn) ;
             break ;
 
         case BTOKEN_TO:
@@ -795,29 +984,20 @@ int basic_exec_line(exec_context_t *context, basic_out_fn_t outfn)
         else
             toexec = context->line_ ;
 
-        if (trace && context->line_->lineno_ != -1) {
-            sprintf(tbuf, "Executing line %d: '", context->line_->lineno_);
-            (*outfn)(tbuf, (int)strlen(tbuf));
-
-            uint32_t str;
-            str = str_create();
-            if (oneLineToString(toexec, str)) {
-                const char* strval = str_value(str);
-                (*outfn)(strval, (int)strlen(strval));
-            }
-            str_destroy(str);
-            (*outfn)("'\n", 2);
-        }
-
         //
         // Execute one statement exactly.  If the statement wants to redirect
         // control flow, it must return a value in the nextone context.
         //
-        exec_one_statement(toexec, &nextone, &code, outfn) ;
+        exec_one_statement(toexec, context, &nextone, &code, outfn) ;
 
         // Error executing the last line
-        if (code != BASIC_ERR_NONE)
+        if (code != BASIC_ERR_NONE) {
+            if (toexec->lineno_ != -1) {
+                sprintf(tbuf, "Program failed: line %d: error code %d\n", toexec->lineno_, code) ;
+                (*outfn)(tbuf, strlen(tbuf)) ;
+            }
             break ;
+        }
 
         if (nextone.line_ != NULL) {
             *context = nextone ;

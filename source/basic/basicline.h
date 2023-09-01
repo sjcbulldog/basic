@@ -13,7 +13,7 @@ typedef enum btokens {
 
     // These below here are in the token table in basicproc.c
     BTOKEN_RUN,
-    BTOKEN_CLS,
+    BTOKEN_CLS,     
     BTOKEN_LIST,
     BTOKEN_CLEAR,
     BTOKEN_LET,
@@ -22,6 +22,7 @@ typedef enum btokens {
     BTOKEN_ELSE,
     BTOKEN_ENDIF,
     BTOKEN_FOR,
+    BTOKEN_NEXT,
     BTOKEN_TO,
     BTOKEN_GOTO,
     BTOKEN_GOSUB,
@@ -51,7 +52,17 @@ typedef struct exec_context
 {
     basic_line_t *line_ ;
     basic_line_t *child_ ;
+    struct exec_context *next_ ;         // Not always used, but these can be linked to create a stack
 } exec_context_t ;
+
+typedef struct for_stack_entry
+{
+    exec_context_t context_ ;
+    uint32_t varidx_ ;
+    uint32_t endidx_ ;
+    uint32_t stepidx_ ;
+    struct for_stack_entry *next_ ;
+} for_stack_entry_t ;
 
 typedef struct token_table
 {

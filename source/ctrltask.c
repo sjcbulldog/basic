@@ -64,13 +64,11 @@ void control_task(void *param)
             vTaskDelay(500/portTICK_PERIOD_MS);
         }
 
-#ifdef NOTYET        
         printf("  Starting telnet connection task\n");
         if (xTaskCreate(network_service_task, "NetworkService", NETWORKCONN_TASK_STACK_SIZE, NULL, NETWORKCONN_TASK_PRIORITY, &netsvc_handle) != pdPASS)
         {
             printf("    - could not start telnet connection task\n") ;
         }
-#endif
     }
 
     if (useUART) {

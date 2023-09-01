@@ -309,7 +309,7 @@ static basic_var_t* get_var_from_index(uint32_t index)
 bool basic_var_get(const char *name, uint32_t *index, basic_err_t *err)
 {    
     for(basic_var_t *var = vars ; var != NULL ; var = var->next_) {
-        if (strcmp(var->name_, name) == 0) {
+        if (_stricmp(var->name_, name) == 0) {
             *index = var->index_ ;
             return true ;
         }
