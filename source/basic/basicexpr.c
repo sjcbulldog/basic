@@ -1,7 +1,7 @@
 #include "basicexpr.h"
 #include "basicexprint.h"
 #include "basiccfg.h"
-#include "mystr.h"
+#include "basicstr.h"
 #include <ctype.h>
 #include <string.h>
 #include <stdlib.h>
@@ -274,22 +274,22 @@ const bool value_to_string(uint32_t str, basic_value_t *value)
     bool ret = true;
 
     if (value->type_ == BASIC_VALUE_TYPE_STRING) {
-        if (!str_add_str(str, "\""))
+        if (!basic_str_add_str(str, "\""))
             ret = false;
 
-        if (ret && !str_add_str(str, value->value.svalue_))
+        if (ret && !basic_str_add_str(str, value->value.svalue_))
             ret = false;
 
-        if (!str_add_str(str, "\""))
+        if (!basic_str_add_str(str, "\""))
             ret = false;
     }
     else 
     {
         if ((value->value.nvalue_ - (int)value->value.nvalue_) < 1e-6) {
-            ret = str_add_int(str, (int)value->value.nvalue_);
+            ret = basic_str_add_int(str, (int)value->value.nvalue_);
         }
         else {
-            ret = str_add_double(str, value->value.nvalue_);
+            ret = basic_str_add_double(str, value->value.nvalue_);
         }
     }
 
@@ -398,6 +398,17 @@ bool basic_var_set_value(uint32_t index, basic_value_t* value, basic_err_t* err)
     }
     var->value_ = value;
     return true;
+}
+
+bool basic_var_set_value_number(uint32_t index, double value, basic_err_t* err)
+{
+    basic_value_t *nval = create_number_value(value) ;
+    if (nval == NULL) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+        return false ;
+    }
+
+    return basic_var_set_value(index, nval, err) ;
 }
 
 basic_value_t *basic_var_get_value(uint32_t index)
@@ -760,7 +771,7 @@ static basic_value_t *func_mem(int count, basic_value_t **args, basic_err_t *err
 
     int mtype = (int)args[0]->value.nvalue_ ;
 
-    if (mtype != 1 && mtype != 2 && mtype != 3) {
+    if (mtype < 1 || mtype > 5) {
         *err = BASIC_ERR_INVALID_ARG_VALUE ;
         return NULL ;
     }
@@ -785,7 +796,13 @@ static basic_value_t *func_mem(int count, basic_value_t **args, basic_err_t *err
             break ;
         case 3:
             ret = mall_info.arena ;
-            break; 
+            break;
+        case 4:
+            ret = basic_str_memsize(false) ;
+            break ;
+        case 5:
+            ret = basic_str_memsize(true) ;
+            break ;            
     }
 
     basic_value_t *v = create_number_value(ret);
@@ -1077,27 +1094,27 @@ static const char *parse_operator(const char *line, operator_table_t **oper, bas
 
 bool basic_expr_operand_array_to_str(uint32_t str, int cnt, basic_operand_t **args)
 {
-    if (!str_add_str(str, "(")) {
-        str_destroy(str) ;
-        return STR_INVALID ;
+    if (!basic_str_add_str(str, "(")) {
+        basic_str_destroy(str) ;
+        return BASIC_STR_INVALID ;
     }
 
     for (int i = 0; i < cnt; i++) {
         if (i != 0) {
-            if (!str_add_str(str, ",")) {
-                str_destroy(str);
-                return STR_INVALID;
+            if (!basic_str_add_str(str, ",")) {
+                basic_str_destroy(str);
+                return BASIC_STR_INVALID;
             }
         }
         if (!basic_operand_to_string(args[i], str)) {
-            str_destroy(str);
-            return STR_INVALID;
+            basic_str_destroy(str);
+            return BASIC_STR_INVALID;
         }
     }
 
-    if (!str_add_str(str, ")")) {
-        str_destroy(str) ;
-        return STR_INVALID ;
+    if (!basic_str_add_str(str, ")")) {
+        basic_str_destroy(str) ;
+        return BASIC_STR_INVALID ;
     }
 
     return str;
@@ -1121,7 +1138,7 @@ static bool basic_operand_to_string(basic_operand_t *oper, uint32_t str)
                     ret = false ;
 
                 if (ret) {
-                    if (!str_add_str(str, oper->operand_.operator_args_.operator_->string_))
+                    if (!basic_str_add_str(str, oper->operand_.operator_args_.operator_->string_))
                         ret = false ;
                 }
 
@@ -1134,7 +1151,7 @@ static bool basic_operand_to_string(basic_operand_t *oper, uint32_t str)
 
         case BASIC_OPERAND_TYPE_VAR:
             v = basic_var_get_name(oper->operand_.var_.varindex_);
-            if (!str_add_str(str, v))
+            if (!basic_str_add_str(str, v))
                 ret = false;
 
             if (oper->operand_.var_.dimcnt_ > 0) {
@@ -1145,7 +1162,7 @@ static bool basic_operand_to_string(basic_operand_t *oper, uint32_t str)
             break ;
 
         case BASIC_OPERAND_TYPE_FUNCTION:
-            if (!str_add_str(str, oper->operand_.function_args_.func_->string_)) {
+            if (!basic_str_add_str(str, oper->operand_.function_args_.func_->string_)) {
                 ret = false;
             }
 
@@ -1154,7 +1171,7 @@ static bool basic_operand_to_string(basic_operand_t *oper, uint32_t str)
             break ;
 
         case BASIC_OPERAND_TYPE_USERFN:
-            if (!str_add_str(str, oper->operand_.userfn_args_.func_->name_)) {
+            if (!basic_str_add_str(str, oper->operand_.userfn_args_.func_->name_)) {
                 ret = false;
             }
 
@@ -1163,7 +1180,7 @@ static bool basic_operand_to_string(basic_operand_t *oper, uint32_t str)
             break ;
 
         case BASIC_OPERAND_TYPE_BOUNDV:
-            if (!str_add_str(str, oper->operand_.boundv_))
+            if (!basic_str_add_str(str, oper->operand_.boundv_))
                 ret = false ;
             break ;
 
@@ -1657,11 +1674,11 @@ static basic_value_t *eval_node(basic_operand_t *op, int vcnt, char **names, bas
     }
 
 #ifdef _PRINT_EVALS_
-    uint32_t strh = str_create() ;
+    uint32_t strh = basic_str_create() ;
     basic_operand_to_string(op, strh);
-    str_add_str(strh, "=");
+    basic_str_add_str(strh, "=");
     value_to_string(strh, ret);
-    const char *strval = str_value(strh);
+    const char *strval = basic_str_value(strh);
     printf("%s\n", strval);
 #endif
 
@@ -1681,13 +1698,13 @@ uint32_t basic_expr_to_string(uint32_t index)
     basic_expr_t *expr = get_expr_from_index(index) ;
     assert(expr != NULL) ;
 
-    uint32_t ret = str_create() ;
-    if (ret == STR_INVALID)
-        return STR_INVALID;
+    uint32_t ret = basic_str_create() ;
+    if (ret == BASIC_STR_INVALID)
+        return BASIC_STR_INVALID;
 
     if (!basic_operand_to_string(expr->top_, ret)) {
-        str_destroy(ret);
-        return STR_INVALID ;
+        basic_str_destroy(ret);
+        return BASIC_STR_INVALID ;
     }
 
     return ret ;
@@ -1798,9 +1815,9 @@ void basic_expr_dump()
 {
     for (basic_expr_t* expr = exprs; expr != NULL; expr = expr->next_) {
         uint32_t exprhand = basic_expr_to_string(expr->index_);
-        const char* exprstr = str_value(exprhand);
+        const char* exprstr = basic_str_value(exprhand);
         printf("%d: '%s'\n", expr->index_, exprstr);
-        str_destroy(exprhand);
+        basic_str_destroy(exprhand);
     }
 }
 #endif

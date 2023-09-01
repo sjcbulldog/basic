@@ -32,6 +32,7 @@ static inline const char *skipSpaces(const char *line)
 extern bool basic_var_get(const char *name, uint32_t *index, basic_err_t *err) ;
 extern bool basic_var_destroy(uint32_t index) ;
 extern bool basic_var_set_value(uint32_t index, basic_value_t *value, basic_err_t *err) ;
+extern bool basic_var_set_value_number(uint32_t index, double value, basic_err_t *err) ;
 extern bool basic_var_set_array_value(uint32_t index, basic_value_t *value, uint32_t *dims, basic_err_t *err) ;
 extern basic_value_t *basic_var_get_value(uint32_t index) ;
 extern basic_value_t *basic_var_get_array_value(uint32_t index, uint32_t *dims, basic_err_t *err) ;

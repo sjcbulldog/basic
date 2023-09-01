@@ -4,7 +4,7 @@
 #include "basicerr.h"
 #include "basicproc.h"
 #include "basicexpr.h"
-#include "mystr.h"
+#include "basicstr.h"
 #include <assert.h>
 #include <string.h>
 #include <stdio.h>
@@ -77,16 +77,16 @@ void basic_save(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 
         pgm = pgm->next_ ;
 
-        if (!str_add_str(str, "\n")) {
+        if (!basic_str_add_str(str, "\n")) {
             fclose(fp) ;
-            str_destroy(str);
+            basic_str_destroy(str);
             *err = BASIC_ERR_OUT_OF_MEMORY ;
             return ;                
         }        
 
-        const char *strval = str_value(str) ;
+        const char *strval = basic_str_value(str) ;
         fputs(strval, fp) ;
-        str_destroy(str) ;
+        basic_str_destroy(str) ;
     }
     fclose(fp) ;
 }

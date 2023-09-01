@@ -3,7 +3,7 @@
 #include "basicproc.h"
 #include "basicexpr.h"
 #include "basiccfg.h"
-#include "mystr.h"
+#include "basicstr.h"
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
@@ -17,7 +17,6 @@ basic_line_t *program = NULL ;
 static const char *clearscreen = "\x1b[2J\x1b[;H";
 static const char *spaces = "        " ;
 static int space_count = 8 ;
-static bool trace = false;
 static for_stack_entry_t *forstack = NULL ;
 
 static void putSpaces(basic_out_fn_t outfn, int count)
@@ -33,7 +32,7 @@ static void putSpaces(basic_out_fn_t outfn, int count)
     }
 }
 
-static forwardOneStmt(exec_context_t *ctxt)
+static void forwardOneStmt(exec_context_t *ctxt)
 {
     if (ctxt->child_ == NULL) {
         if (ctxt->line_->children_) {
@@ -59,7 +58,7 @@ static bool dimToString(basic_line_t* line, uint32_t str)
     while (index < line->count_)
     {
         if (index != 1) {
-            if (!str_add_str(str, ","))
+            if (!basic_str_add_str(str, ","))
                 return false;
         }
 
@@ -70,29 +69,29 @@ static bool dimToString(basic_line_t* line, uint32_t str)
         if (varname == NULL)
             return false;
 
-        if (!str_add_str(str, varname))
+        if (!basic_str_add_str(str, varname))
             return false;
 
         dimcnt = getU32(line, index);
         index += 4;
 
-        if (!str_add_str(str, "("))
+        if (!basic_str_add_str(str, "("))
             return false;
 
         for (uint32_t i = 0; i < dimcnt; i++) {
             if (i != 0) {
-                if (!str_add_str(str, ","))
+                if (!basic_str_add_str(str, ","))
                     return false;
             }
 
             uint32_t tmp = getU32(line, index);
             index += 4;
 
-            if (!str_add_int(str, tmp))
+            if (!basic_str_add_int(str, tmp))
                 return false;
         }
 
-        if (!str_add_str(str, ")"))
+        if (!basic_str_add_str(str, ")"))
             return false;
     }
 
@@ -105,24 +104,24 @@ static bool letSimpleToString(basic_line_t* line, uint32_t str)
     uint32_t expridx = getU32(line, 5);
 
     const char* varname = basic_var_get_name(varidx);
-    if (!str_add_str(str, varname))
+    if (!basic_str_add_str(str, varname))
         return false;
 
-    if (!str_add_str(str, "=")) {
+    if (!basic_str_add_str(str, "=")) {
         return false;
     }
 
     uint32_t strh = basic_expr_to_string(expridx);
-    if (strh == STR_INVALID)
+    if (strh == BASIC_STR_INVALID)
     {
         return false;
     }
 
-    if (!str_add_handle(str, strh)) {
-        str_destroy(strh);
+    if (!basic_str_add_handle(str, strh)) {
+        basic_str_destroy(strh);
         return false;
     }
-    str_destroy(strh);
+    basic_str_destroy(strh);
     return true;
 }
 
@@ -133,10 +132,10 @@ static bool letArrayToString(basic_line_t *line, uint32_t str)
     index += 4;
     const char* varname = basic_var_get_name(varidx);
 
-    if (!str_add_str(str, varname))
+    if (!basic_str_add_str(str, varname))
         return false;
 
-    if (!str_add_str(str, "("))
+    if (!basic_str_add_str(str, "("))
         return false;
 
     uint32_t dimcnt = getU32(line, index);
@@ -144,7 +143,7 @@ static bool letArrayToString(basic_line_t *line, uint32_t str)
 
     for (uint32_t i = 0; i < dimcnt; i++) {
         if (i != 0) {
-            if (!str_add_str(str, ","))
+            if (!basic_str_add_str(str, ","))
                 return false;
         }
 
@@ -152,32 +151,32 @@ static bool letArrayToString(basic_line_t *line, uint32_t str)
         index += 4;
 
         uint32_t strh = basic_expr_to_string(dimexpr);
-        if (strh == STR_INVALID)
+        if (strh == BASIC_STR_INVALID)
         {
             return false;
         }
 
-        if (!str_add_handle(str, strh)) {
-            str_destroy(strh);
+        if (!basic_str_add_handle(str, strh)) {
+            basic_str_destroy(strh);
             return false;
         }
     }
 
-    if (!str_add_str(str, ")="))
+    if (!basic_str_add_str(str, ")="))
         return false;
 
     uint32_t exprh = getU32(line, index);
     uint32_t strh = basic_expr_to_string(exprh);
-    if (strh == STR_INVALID) 
+    if (strh == BASIC_STR_INVALID) 
     {
         return false ;
     }
 
-    if (!str_add_handle(str, strh)) {
-        str_destroy(strh);
+    if (!basic_str_add_handle(str, strh)) {
+        basic_str_destroy(strh);
         return false ;
     }
-    str_destroy(strh);
+    basic_str_destroy(strh);
 
     return true ;
 }
@@ -186,12 +185,12 @@ static bool loadSaveToString(basic_line_t* line, uint32_t str)
 {
     uint32_t exprindex = getU32(line, 1);
     uint32_t strh = basic_expr_to_string(exprindex);
-    if (!str_add_handle(str, strh)) {
-        str_destroy(strh);
+    if (!basic_str_add_handle(str, strh)) {
+        basic_str_destroy(strh);
         return false;
     }
 
-    str_destroy(strh);
+    basic_str_destroy(strh);
     return true;
 }
 
@@ -202,24 +201,24 @@ static bool printToString(basic_line_t *line, uint32_t str)
     {
         uint32_t exprindex = getU32(line, index);
         uint32_t strh = basic_expr_to_string(exprindex);
-        if (!str_add_handle(str, strh)) {
-            str_destroy(strh) ;
+        if (!basic_str_add_handle(str, strh)) {
+            basic_str_destroy(strh) ;
             return false;
         }
-        str_destroy(strh);
+        basic_str_destroy(strh);
         index += 4 ;
 
         if (index == line->count_)
             break; 
 
         if (line->tokens_[index] == BTOKEN_COMMA) {
-            if (!str_add_str(str, ",")) {
+            if (!basic_str_add_str(str, ",")) {
                 return false;
             }
             index++ ;
         }
         else if (line->tokens_[index] == BTOKEN_SEMICOLON) {
-            if (!str_add_str(str, ";")) {
+            if (!basic_str_add_str(str, ";")) {
                 return false;
             }
             index++ ;
@@ -234,7 +233,7 @@ static bool printToString(basic_line_t *line, uint32_t str)
 
 static bool remToString(basic_line_t *line, uint32_t str)
 {
-    return str_add_str(str, line->extra_) ;
+    return basic_str_add_str(str, line->extra_) ;
 }
 
 static bool nextToString(basic_line_t *line, uint32_t str)
@@ -242,7 +241,7 @@ static bool nextToString(basic_line_t *line, uint32_t str)
     if (line->count_ == 5) {
         uint32_t idx = getU32(line, 1);
         const char* varname = basic_var_get_name(idx) ;
-        if (!str_add_str(str, varname)) {
+        if (!basic_str_add_str(str, varname)) {
             return false; 
         }
     }
@@ -256,45 +255,45 @@ static bool forToString(basic_line_t *line, uint32_t str)
 
     idx = getU32(line, index);
     const char* varname = basic_var_get_name(idx) ;
-    if (!str_add_str(str, varname))
+    if (!basic_str_add_str(str, varname))
         return false;    
     index += 4 ;
 
-    if (!str_add_str(str, "="))
+    if (!basic_str_add_str(str, " = "))
         return false ;
 
     idx = getU32(line, index);
     strh = basic_expr_to_string(idx);
-    if (!str_add_handle(str, strh)) {
-        str_destroy(strh) ;
+    if (!basic_str_add_handle(str, strh)) {
+        basic_str_destroy(strh) ;
         return false;
     }
-    str_destroy(strh);
+    basic_str_destroy(strh);
     index += 4 ;
 
-    if (!str_add_str(str, "TO"))
+    if (!basic_str_add_str(str, " TO "))
         return false ;    
 
     idx = getU32(line, index);
     strh = basic_expr_to_string(idx);
-    if (!str_add_handle(str, strh)) {
-        str_destroy(strh) ;
+    if (!basic_str_add_handle(str, strh)) {
+        basic_str_destroy(strh) ;
         return false;
     }
-    str_destroy(strh);
+    basic_str_destroy(strh);
     index += 4 ;
 
     if (index < line->count_) {
-        if (!str_add_str(str, "STEP"))
+        if (!basic_str_add_str(str, "STEP"))
             return false ;   
 
         idx = getU32(line, index);
         strh = basic_expr_to_string(idx);
-        if (!str_add_handle(str, strh)) {
-            str_destroy(strh) ;
+        if (!basic_str_add_handle(str, strh)) {
+            basic_str_destroy(strh) ;
             return false;
         }
-        str_destroy(strh);
+        basic_str_destroy(strh);
         index += 4 ;      
     }
 
@@ -315,30 +314,30 @@ static bool defToString(basic_line_t *line, uint32_t str)
     if (argnames == NULL)
         return false ;
 
-    if (!str_add_str(str, fname))
+    if (!basic_str_add_str(str, fname))
         return false ;
 
-    if (!str_add_str(str, "("))
+    if (!basic_str_add_str(str, "("))
         return false ;
 
     for(int i = 0 ; i < argcnt ; i++) 
     {
         if (i != 0) {
-            if (!str_add_str(str, ","))
+            if (!basic_str_add_str(str, ","))
                 return false ;            
         }
 
-        if (!str_add_str(str, argnames[i]))
+        if (!basic_str_add_str(str, argnames[i]))
             return false ;
     }
     
-    if (!str_add_str(str, ")="))
+    if (!basic_str_add_str(str, ")="))
         return false ;
 
     uint32_t strh = basic_expr_to_string(exprindex) ;
-    if (!str_add_handle(str, strh))
+    if (!basic_str_add_handle(str, strh))
     {
-        str_destroy(strh) ;
+        basic_str_destroy(strh) ;
         return false ;
     }
 
@@ -347,11 +346,11 @@ static bool defToString(basic_line_t *line, uint32_t str)
 
 static bool oneLineToString(basic_line_t *line, uint32_t str)
 {
-    if (!str_add_str(str, basic_token_to_str(line->tokens_[0]))) {
+    if (!basic_str_add_str(str, basic_token_to_str(line->tokens_[0]))) {
         return false ;
     }
 
-    if (!str_add_str(str, " ")) {
+    if (!basic_str_add_str(str, " ")) {
         return false ;
     }
 
@@ -419,33 +418,33 @@ uint32_t lineToString(basic_line_t *line)
 {
     uint32_t str ;
 
-    str = str_create() ;
-    if (!str_add_int(str, line->lineno_)) {
-        str_destroy(str) ;
-        return STR_INVALID ;
+    str = basic_str_create() ;
+    if (!basic_str_add_int(str, line->lineno_)) {
+        basic_str_destroy(str) ;
+        return BASIC_STR_INVALID ;
     }
 
-    if (!str_add_str(str, " ")) {
-        str_destroy(str) ;
-        return STR_INVALID ;        
+    if (!basic_str_add_str(str, " ")) {
+        basic_str_destroy(str) ;
+        return BASIC_STR_INVALID ;        
     }
 
     if (!oneLineToString(line, str)) {
-        str_destroy(str) ;
-        return STR_INVALID ;
+        basic_str_destroy(str) ;
+        return BASIC_STR_INVALID ;
     }
 
     basic_line_t *child = line->children_ ;
 
     while (child) {
-        if (!str_add_str(str, ":")) {
-            str_destroy(str) ;
-            return STR_INVALID ;
+        if (!basic_str_add_str(str, ":")) {
+            basic_str_destroy(str) ;
+            return BASIC_STR_INVALID ;
         }
 
         if (!oneLineToString(child, str)) {
-            str_destroy(str) ;
-            return STR_INVALID ;
+            basic_str_destroy(str) ;
+            return BASIC_STR_INVALID ;
         }
 
         child = child->next_ ;
@@ -475,23 +474,21 @@ void basic_store_line(basic_line_t *line)
     if (program == NULL) {
         program = line ;
     }
+    else if (line->lineno_ == program->lineno_) {
+        replace_line(program, line) ;
+    }
     else if (line->lineno_ < program->lineno_) {
         line->next_ = program ;
         program = line ;
     }
     else {
         basic_line_t *tmp = program ;
-        while (tmp->next_ != NULL && line->lineno_ >= tmp->next_->lineno_) {
+        while (tmp->next_ != NULL && line->lineno_ > tmp->next_->lineno_) {
             tmp = tmp->next_ ;
         }
 
         if (tmp->next_ == NULL) {
-            if (tmp->lineno_ == line->lineno_) {
-                replace_line(tmp, line) ;
-            }
-            else {
-                tmp->next_ = line ;
-            }
+            tmp->next_ = line ;
         }
         else {
             if (tmp->next_->lineno_ == line->lineno_) {
@@ -553,20 +550,20 @@ void basic_list(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
         while (pgm) {
             uint32_t str = lineToString(pgm) ;
 
-            if (str == STR_INVALID) {
+            if (str == BASIC_STR_INVALID) {
                 *err = BASIC_ERR_OUT_OF_MEMORY ;
                 return ;
             }
 
-            if (!str_add_str(str, "\n")) {
-                str_destroy(str);
+            if (!basic_str_add_str(str, "\n")) {
+                basic_str_destroy(str);
                 *err = BASIC_ERR_OUT_OF_MEMORY ;
                 return ;
             }
 
-            const char *strval = str_value(str) ;
+            const char *strval = basic_str_value(str) ;
             (*outfn)(strval, (int)strlen(strval));
-            str_destroy(str) ;
+            basic_str_destroy(str) ;
             
             pgm = pgm->next_ ;
         }
@@ -802,7 +799,6 @@ void basic_for(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, b
 
 void basic_next(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, basic_out_fn_t outfn)
 {
-    const char *varname = NULL ;
     double step = 1.0 ;
 
     if (forstack == NULL) {
@@ -810,15 +806,30 @@ void basic_next(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, 
         return ;
     }
 
+    //
+    // Get the current loop variable value
+    //
+    basic_value_t *loopval = basic_var_get_value(forstack->varidx_) ;
+    if (loopval->type_ != BASIC_VALUE_TYPE_NUMBER) {
+        *err = BASIC_ERR_TYPE_MISMATCH ;
+        return ;
+    }
+
+    //
+    // Evaluate the end of for loop condition
+    //
     basic_value_t *endval = basic_expr_eval(forstack->endidx_, 0, NULL, NULL, err) ;
     if (endval == NULL)
         return ;
-
     if (endval->type_ != BASIC_VALUE_TYPE_NUMBER) {
         *err = BASIC_ERR_TYPE_MISMATCH ;
         return ;
     }        
 
+    //
+    // Evaluate the step value as it is needed in the determination of the end of loop
+    // condition
+    //
     if (forstack->stepidx_ != 0xffffffff) {
         basic_value_t *stepval = basic_expr_eval(forstack->stepidx_, 0, NULL, NULL, err) ;
         if (stepval == NULL)
@@ -830,20 +841,21 @@ void basic_next(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, 
         }
 
         step = stepval->value.nvalue_ ;
-    }
+    }    
 
-    basic_value_t *loopval = basic_var_get_value(forstack->varidx_) ;
-    if (loopval->type_ != BASIC_VALUE_TYPE_NUMBER) {
-        *err = BASIC_ERR_TYPE_MISMATCH ;
-        return ;
-    }
-
-    if ((step < 0.0 && loopval->value.nvalue_ < endval->value.nvalue_) ||
-        (step > 0.0 && loopval->value.nvalue_ > endval->value.nvalue_)) {
-
-        // The loop is done
+    if ((step < 0.0 && loopval->value.nvalue_ + step < endval->value.nvalue_) ||
+        (step > 0.0 && loopval->value.nvalue_ + step > endval->value.nvalue_)) {
+        //
+        // The loop is done, remove the top entry from the for stack
+        //
+        for_stack_entry_t *todel = forstack ;
+        forstack = forstack->next_ ;
+        free(todel) ;
     }
     else {
+        //
+        // The loop is still running, get the step value
+        //
         if (!basic_var_set_value_number(forstack->varidx_, loopval->value.nvalue_ + step, err))
             return ;
 

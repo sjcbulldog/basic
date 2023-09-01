@@ -2,7 +2,7 @@
 #include "basicerr.h"
 #include "basicproc.h"
 #include "basicexpr.h"
-#include "mystr.h"
+#include "basicstr.h"
 #include <FreeRTOS.h>
 #include <ff.h>
 #include <assert.h>
@@ -50,7 +50,7 @@ void basic_save(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
     while (pgm)
     {
         uint32_t str = lineToString(pgm);
-        if (str == STR_INVALID) {
+        if (str == BASIC_STR_INVALID) {
             f_close(&fp) ;
             *err = BASIC_ERR_OUT_OF_MEMORY ;
             return ;
@@ -58,17 +58,17 @@ void basic_save(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 
         pgm = pgm->next_ ;
 
-        if (!str_add_str(str, "\n")) {
+        if (!basic_str_add_str(str, "\n")) {
             f_close(&fp) ;
-            str_destroy(str);
+            basic_str_destroy(str);
             *err = BASIC_ERR_OUT_OF_MEMORY ;
             return ;                
         }        
 
-        const char *strval = str_value(str) ;
+        const char *strval = basic_str_value(str) ;
         UINT towrite = strlen(strval) ;
         res = f_write(&fp, strval, towrite, &written) ;
-        str_destroy(str) ;
+        basic_str_destroy(str) ;
         if (res != FR_OK || towrite != written) {
             f_close(&fp) ;
             *err = BASIC_ERR_IO_ERROR ;

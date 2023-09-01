@@ -4,7 +4,7 @@
 #include "cybsp.h"
 #include "cy_retarget_io.h"
 #include "ctrltask.h"
-#include "mystr.h"
+#include "basicstr.h"
 
 /* RTOS header file. */
 #include <FreeRTOS.h>
@@ -45,9 +45,6 @@ int main()
 
     // Initialize the User LED
     cyhal_gpio_init(CYBSP_USER_LED, CYHAL_GPIO_DIR_OUTPUT, CYHAL_GPIO_DRIVE_STRONG, CYBSP_LED_STATE_OFF);
-
-    // Initialize the string manager
-    str_init() ;
 
     /* \x1b[2J\x1b[;H - ANSI ESC sequence to clear screen */
     printf("\x1b[2J\x1b[;H");

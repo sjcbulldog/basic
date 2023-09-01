@@ -31,7 +31,7 @@ static TaskHandle_t uart_handle ;
 static TaskHandle_t basic_handle ;
 
 static bool useUART = true ;
-static bool useWIFI = true ;
+static bool useWIFI = false ;
 
 void control_task(void *param)
 {

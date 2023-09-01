@@ -4,6 +4,7 @@
 #include "basicexec.h"
 #include "basicexpr.h"
 #include "basiccfg.h"
+#include "basicstr.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -21,33 +22,33 @@ static const char *prompt = "Basic06> ";
 
 static token_table_t tokens[] = 
 {
-    { BTOKEN_RUN, "run" },
-    { BTOKEN_CLS, "cls" },
-    { BTOKEN_LIST, "list"},
-    { BTOKEN_CLEAR, "clear"},
-    { BTOKEN_LET, "let"},
-    { BTOKEN_IF, "if"},
-    { BTOKEN_THEN, "then"},
-    { BTOKEN_ELSE, "else"},
-    { BTOKEN_ENDIF, "endif"},
-    { BTOKEN_FOR, "for"},
-    { BTOKEN_NEXT, "next"},
-    { BTOKEN_TO, "to"},
-    { BTOKEN_GOTO, "goto"},
-    { BTOKEN_GOSUB, "gosub"},
-    { BTOKEN_SAVE, "save"},
-    { BTOKEN_LOAD, "load"},
-    { BTOKEN_STEP, "step"},
-    { BTOKEN_PRINT, "print"},
-    { BTOKEN_FLIST, "flist"},
-    { BTOKEN_REM, "rem"},    
-    { BTOKEN_DIM, "dim"},
-    { BTOKEN_DEF, "def"},
-    { BTOKEN_INPUT, "input"},
-    { BTOKEN_ON, "on"},
+    { BTOKEN_RUN, "RUN" },
+    { BTOKEN_CLS, "CLS" },
+    { BTOKEN_LIST, "LIST"},
+    { BTOKEN_CLEAR, "CLEAR"},
+    { BTOKEN_LET, "LET"},
+    { BTOKEN_IF, "IF"},
+    { BTOKEN_THEN, "THEN"},
+    { BTOKEN_ELSE, "ELSE"},
+    { BTOKEN_ENDIF, "ENDIF"},
+    { BTOKEN_FOR, "FOR"},
+    { BTOKEN_NEXT, "NEXT"},
+    { BTOKEN_TO, "TO"},
+    { BTOKEN_GOTO, "GOTO"},
+    { BTOKEN_GOSUB, "GOSUB"},
+    { BTOKEN_SAVE, "SAVE"},
+    { BTOKEN_LOAD, "LOAD"},
+    { BTOKEN_STEP, "STEP"},
+    { BTOKEN_PRINT, "PRINT"},
+    { BTOKEN_FLIST, "FLIST"},
+    { BTOKEN_REM, "REM"},    
+    { BTOKEN_DIM, "DIM"},
+    { BTOKEN_DEF, "DEF"},
+    { BTOKEN_INPUT, "INPUT"},
+    { BTOKEN_ON, "ON"},
 
-    { BTOKEN_LET_SIMPLE, "let"},
-    { BTOKEN_LET_ARRAY, "let"},
+    { BTOKEN_LET_SIMPLE, "LET"},
+    { BTOKEN_LET_ARRAY, "LET"},
 } ;
 
 static char linebuf[256] ;
