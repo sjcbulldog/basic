@@ -27,7 +27,8 @@
         "files.associations": {
             "cy_retarget_io.h": "c",
             "cy_wcm_error.h": "c",
-            "algorithm": "c"
+            "algorithm": "c",
+            "xiosbase": "c"
         }
     },
     "extensions": {

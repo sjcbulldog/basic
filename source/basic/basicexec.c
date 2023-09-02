@@ -17,7 +17,19 @@ basic_line_t *program = NULL ;
 static const char *clearscreen = "\x1b[2J\x1b[;H";
 static const char *spaces = "        " ;
 static int space_count = 8 ;
-static for_stack_entry_t *forstack = NULL ;
+
+static for_stack_entry_t *for_stack = NULL ;
+static gosub_stack_entry_t *gosub_stack = NULL ;
+
+static basic_line_t *find_line_by_number(uint32_t lineno)
+{
+    for(basic_line_t *line = program ; line ; line = line->next_) {
+        if (line->lineno_ == lineno)
+            return line ;
+    }
+
+    return NULL ;
+}
 
 static void putSpaces(basic_out_fn_t outfn, int count)
 {
@@ -53,7 +65,7 @@ static void forwardOneStmt(exec_context_t *ctxt)
 static bool dimToString(basic_line_t* line, uint32_t str)
 {
     int index = 1;
-    uint32_t dimcnt, varidx;
+    uint32_t dimcnt, varnameidx ;
 
     while (index < line->count_)
     {
@@ -62,12 +74,11 @@ static bool dimToString(basic_line_t* line, uint32_t str)
                 return false;
         }
 
-        varidx = getU32(line, index);
+        varnameidx = getU32(line, index);
         index += 4;
 
-        const char* varname = basic_var_get_name(varidx);
-        if (varname == NULL)
-            return false;
+        const char *varname = basic_str_value(varnameidx) ;
+        assert(varname != NULL) ;
 
         if (!basic_str_add_str(str, varname))
             return false;
@@ -100,10 +111,11 @@ static bool dimToString(basic_line_t* line, uint32_t str)
 
 static bool letSimpleToString(basic_line_t* line, uint32_t str)
 {
-    uint32_t varidx = getU32(line, 1);
+    uint32_t varnameidx = getU32(line, 1);
     uint32_t expridx = getU32(line, 5);
 
-    const char* varname = basic_var_get_name(varidx);
+    const char* varname = basic_str_value(varnameidx);
+    assert(varname);
     if (!basic_str_add_str(str, varname))
         return false;
 
@@ -128,9 +140,12 @@ static bool letSimpleToString(basic_line_t* line, uint32_t str)
 static bool letArrayToString(basic_line_t *line, uint32_t str)
 {
     int index = 1;
-    uint32_t varidx = getU32(line, index);
+
+    uint32_t varnameidx = getU32(line, index);
     index += 4;
-    const char* varname = basic_var_get_name(varidx);
+
+    const char* varname = basic_str_value(varnameidx) ;
+    assert(varname != NULL) ;
 
     if (!basic_str_add_str(str, varname))
         return false;
@@ -344,6 +359,24 @@ static bool defToString(basic_line_t *line, uint32_t str)
     return true ;
 }
 
+static bool ifToString(basic_line_t *line, uint32_t str)
+{
+    uint32_t exprindex = getU32(line, 1) ;
+
+    uint32_t strh = basic_expr_to_string(exprindex) ;
+    if (!basic_str_add_handle(str, strh))
+    {
+        basic_str_destroy(strh) ;
+        return false ;
+    }
+    basic_str_destroy(strh);
+
+    if (!basic_str_add_str(str, " THEN "))
+        return false ;
+
+    return true ;
+}
+
 static bool oneLineToString(basic_line_t *line, uint32_t str)
 {
     if (!basic_str_add_str(str, basic_token_to_str(line->tokens_[0]))) {
@@ -401,8 +434,23 @@ static bool oneLineToString(basic_line_t *line, uint32_t str)
                 return false ;
             break ;
 
+        case BTOKEN_GOTO:
+        case BTOKEN_GOSUB:
+            if (!basic_str_add_int(str, getU32(line, 1))) {
+                return false ;
+            }
+            break ;
+
         case BTOKEN_NEXT:
             if (!nextToString(line, str))
+                return false ;
+            break ;
+
+        case BTOKEN_RETURN:
+            break ;
+
+        case BTOKEN_IF:
+            if (!ifToString(line, str))
                 return false ;
             break ;
 
@@ -417,6 +465,7 @@ static bool oneLineToString(basic_line_t *line, uint32_t str)
 uint32_t lineToString(basic_line_t *line)
 {
     uint32_t str ;
+    basic_line_t *prev = NULL ;
 
     str = basic_str_create() ;
     if (!basic_str_add_int(str, line->lineno_)) {
@@ -435,11 +484,14 @@ uint32_t lineToString(basic_line_t *line)
     }
 
     basic_line_t *child = line->children_ ;
+    prev = line ;
 
     while (child) {
-        if (!basic_str_add_str(str, ":")) {
-            basic_str_destroy(str) ;
-            return BASIC_STR_INVALID ;
+        if (prev->tokens_[0] != BTOKEN_IF) {
+            if (!basic_str_add_str(str, ":")) {
+                basic_str_destroy(str) ;
+                return BASIC_STR_INVALID ;
+            }                
         }
 
         if (!oneLineToString(child, str)) {
@@ -447,6 +499,7 @@ uint32_t lineToString(basic_line_t *line)
             return BASIC_STR_INVALID ;
         }
 
+        prev = child ;
         child = child->next_ ;
     }
 
@@ -546,24 +599,29 @@ void basic_list(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
         (*outfn)(empty_message,  (int)strlen(empty_message));
     }
     else {
+        uint32_t start = getU32(line, 1) ;
+        uint32_t end = getU32(line, 5);
+
         basic_line_t *pgm = program ;
-        while (pgm) {
-            uint32_t str = lineToString(pgm) ;
+        while (pgm && pgm->lineno_ <= end) {
+            if (pgm->lineno_ >= start && pgm->lineno_ <= end) {
+                uint32_t str = lineToString(pgm) ;
 
-            if (str == BASIC_STR_INVALID) {
-                *err = BASIC_ERR_OUT_OF_MEMORY ;
-                return ;
+                if (str == BASIC_STR_INVALID) {
+                    *err = BASIC_ERR_OUT_OF_MEMORY ;
+                    return ;
+                }
+
+                if (!basic_str_add_str(str, "\n")) {
+                    basic_str_destroy(str);
+                    *err = BASIC_ERR_OUT_OF_MEMORY ;
+                    return ;
+                }
+
+                const char *strval = basic_str_value(str) ;
+                (*outfn)(strval, (int)strlen(strval));
+                basic_str_destroy(str) ;
             }
-
-            if (!basic_str_add_str(str, "\n")) {
-                basic_str_destroy(str);
-                *err = BASIC_ERR_OUT_OF_MEMORY ;
-                return ;
-            }
-
-            const char *strval = basic_str_value(str) ;
-            (*outfn)(strval, (int)strlen(strval));
-            basic_str_destroy(str) ;
             
             pgm = pgm->next_ ;
         }
@@ -588,6 +646,11 @@ void basic_clear(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
     }
 
     program = NULL ;
+
+    basic_str_clear_all() ;
+    basic_var_clear_all() ;
+    basic_expr_clear_all() ;
+    basic_userfn_clear_all() ;
 }
 
 void basic_print(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
@@ -652,8 +715,14 @@ void basic_let_simple(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn
     assert(line->count_ == 9);
     *err = BASIC_ERR_NONE ;    
 
-    uint32_t varindex = getU32(line, 1) ;
+    uint32_t varindex ;
+    uint32_t varnameidx = getU32(line, 1) ;
     uint32_t exprindex = getU32(line, 5) ;
+    const char *varname = basic_str_value(varnameidx) ;
+    assert(varname != NULL) ;
+
+    if (!basic_var_get(varname, &varindex, err))
+        return ;
 
     basic_value_t *value = basic_expr_eval(exprindex, 0, NULL, NULL, err) ;
     if (value == NULL)
@@ -672,9 +741,14 @@ void basic_let_array(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 
     *err = BASIC_ERR_NONE ;    
 
-    uint32_t varindex = getU32(line, index) ;
-    index += 4;
-    
+    uint32_t varindex ;
+    uint32_t varnameidx = getU32(line, index) ;
+    const char *varname = basic_str_value(varnameidx) ;
+    assert(varname != NULL) ;
+    if (!basic_var_get(varname, &varindex, err))
+        return ;
+    index += 4 ;
+
     uint32_t dimcnt = getU32(line, index);
     index += 4;
 
@@ -714,12 +788,17 @@ void basic_let_array(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 void basic_dim(basic_line_t* line, basic_err_t* err, basic_out_fn_t outfn)
 {
     uint32_t dims[BASIC_MAX_DIMS];
-    uint32_t varidx, dimcnt;
+    uint32_t varidx, dimcnt, varnameidx ;
+    const char *varname ;
     int index = 1;
 
     while (index < line->count_) {
-        varidx = getU32(line, index);
-        index += 4;
+        varnameidx = getU32(line, index) ;
+        index += 4 ;
+        varname = basic_str_value(varnameidx) ;
+        assert(varname != NULL) ;
+        if (!basic_var_get(varname, &varidx, err))
+            return ;
 
         dimcnt = getU32(line, index);
         index += 4;
@@ -736,8 +815,25 @@ void basic_dim(basic_line_t* line, basic_err_t* err, basic_out_fn_t outfn)
     *err = BASIC_ERR_NONE;
 }
 
-void basic_if(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, basic_out_fn_t outfn)
+void basic_if(basic_line_t *line, exec_context_t *current, exec_context_t *nextline, basic_err_t *err, basic_out_fn_t outfn)
 {
+    basic_value_t *cond = basic_expr_eval(getU32(line, 1), 0, NULL, NULL, err);
+    if (cond == NULL)
+        return ;
+
+    if (cond->type_ != BASIC_VALUE_TYPE_NUMBER) {
+        *err = BASIC_ERR_TYPE_MISMATCH ;
+        return ;
+    }
+
+    if (cond->value.nvalue_ < 1.0e-6) {
+        //
+        // Conditional is false, jump to the next numbered line
+        //
+        nextline->line_ = current->line_->next_ ;
+        nextline->child_ = NULL ;
+    }
+
     *err = BASIC_ERR_NONE ;    
     return ;
 }
@@ -758,7 +854,12 @@ void basic_for(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, b
 {
     uint32_t varindex, expridx ;
 
-    varindex = getU32(line, 1) ;
+    uint32_t varnameidx = getU32(line, 1) ;
+    const char *varname = basic_str_value(varnameidx) ;
+    assert(varname != NULL) ;
+    if (!basic_var_get(varname, &varindex, err))
+        return ;
+
     expridx = getU32(line, 5);
 
     basic_value_t *start = basic_expr_eval(expridx, 0, NULL, NULL, err);
@@ -790,8 +891,8 @@ void basic_for(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, b
         c->context_.child_ = NULL ;
 
 
-    c->next_ = forstack ;
-    forstack = c ;
+    c->next_ = for_stack ;
+    for_stack = c ;
 
     *err = BASIC_ERR_NONE ;
     return ;
@@ -801,7 +902,7 @@ void basic_next(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, 
 {
     double step = 1.0 ;
 
-    if (forstack == NULL) {
+    if (for_stack == NULL) {
         *err = BASIC_ERR_UNMATCHED_NEXT ;
         return ;
     }
@@ -809,7 +910,7 @@ void basic_next(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, 
     //
     // Get the current loop variable value
     //
-    basic_value_t *loopval = basic_var_get_value(forstack->varidx_) ;
+    basic_value_t *loopval = basic_var_get_value(for_stack->varidx_) ;
     if (loopval->type_ != BASIC_VALUE_TYPE_NUMBER) {
         *err = BASIC_ERR_TYPE_MISMATCH ;
         return ;
@@ -818,7 +919,7 @@ void basic_next(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, 
     //
     // Evaluate the end of for loop condition
     //
-    basic_value_t *endval = basic_expr_eval(forstack->endidx_, 0, NULL, NULL, err) ;
+    basic_value_t *endval = basic_expr_eval(for_stack->endidx_, 0, NULL, NULL, err) ;
     if (endval == NULL)
         return ;
     if (endval->type_ != BASIC_VALUE_TYPE_NUMBER) {
@@ -830,8 +931,8 @@ void basic_next(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, 
     // Evaluate the step value as it is needed in the determination of the end of loop
     // condition
     //
-    if (forstack->stepidx_ != 0xffffffff) {
-        basic_value_t *stepval = basic_expr_eval(forstack->stepidx_, 0, NULL, NULL, err) ;
+    if (for_stack->stepidx_ != 0xffffffff) {
+        basic_value_t *stepval = basic_expr_eval(for_stack->stepidx_, 0, NULL, NULL, err) ;
         if (stepval == NULL)
             return ;
 
@@ -848,19 +949,22 @@ void basic_next(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, 
         //
         // The loop is done, remove the top entry from the for stack
         //
-        for_stack_entry_t *todel = forstack ;
-        forstack = forstack->next_ ;
+        basic_var_destroy(for_stack->varidx_) ;
+        for_stack_entry_t *todel = for_stack ;
+        for_stack = for_stack->next_ ;
         free(todel) ;
+
+
     }
     else {
         //
         // The loop is still running, get the step value
         //
-        if (!basic_var_set_value_number(forstack->varidx_, loopval->value.nvalue_ + step, err))
+        if (!basic_var_set_value_number(for_stack->varidx_, loopval->value.nvalue_ + step, err))
             return ;
 
-        nextline->line_ = forstack->context_.line_ ;
-        nextline->child_ = forstack->context_.child_ ;
+        nextline->line_ = for_stack->context_.line_ ;
+        nextline->child_ = for_stack->context_.child_ ;
         forwardOneStmt(nextline) ;
     }
 }
@@ -873,13 +977,54 @@ void basic_to(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 
 void basic_goto(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, basic_out_fn_t outfn)
 {
-    *err = BASIC_ERR_NONE ;    
+    basic_line_t *nline = find_line_by_number(getU32(line, 1)) ;
+    if (nline == NULL) {
+        *err = BASIC_ERR_INVALID_LINE_NUMBER ;
+        return ;
+    }
+    nextline->line_ = nline ;
+    nextline->child_ = NULL ;
+    *err = BASIC_ERR_NONE ;
     return ;
 }
 
-void basic_gosub(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, basic_out_fn_t outfn)
+void basic_gosub(basic_line_t *line, exec_context_t *current, exec_context_t *nextline, basic_err_t *err, basic_out_fn_t outfn)
 {
-    *err = BASIC_ERR_NONE ;    
+    basic_line_t *nline = find_line_by_number(getU32(line, 1)) ;
+    if (nline == NULL) {
+        *err = BASIC_ERR_INVALID_LINE_NUMBER ;
+        return ;
+    }
+
+    gosub_stack_entry_t *entry = (gosub_stack_entry_t *)malloc(sizeof(gosub_stack_entry_t)) ;
+    if (entry == NULL) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+        return ;
+    }
+
+    entry->context_.line_ = current->line_ ;
+    entry->context_.child_ = current->child_ ;
+    forwardOneStmt(&entry->context_);
+
+    entry->next_ = gosub_stack ;
+    gosub_stack = entry ;
+
+
+    nextline->line_ = nline ;    
+    nextline->child_ = NULL ;
+    *err = BASIC_ERR_NONE ;
+    return ;
+}
+
+void basic_return(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, basic_out_fn_t outfn)
+{
+    if (gosub_stack == NULL) {
+        *err = BASIC_ERR_NO_GOSUB ;
+        return ;
+    }
+
+    nextline->line_ = gosub_stack->context_.line_ ;
+    nextline->child_ = gosub_stack->context_.child_ ;
     return ;
 }
 
@@ -930,28 +1075,12 @@ static void exec_one_statement(basic_line_t *line, exec_context_t *current, exec
             basic_print(line, err, outfn) ;
             break;
 
-        case BTOKEN_IF:
-            basic_if(line, nextline, err, outfn) ;
-            break ;
-
         case BTOKEN_THEN:
             basic_then(line, nextline, err, outfn) ;
             break ;
 
-        case BTOKEN_ELSE:
-            basic_else(line, nextline, err, outfn) ;
-            break ;
-
         case BTOKEN_FOR:
             basic_for(line, current, err, outfn) ;
-            break ;
-
-        case BTOKEN_NEXT:
-            basic_next(line, nextline, err, outfn) ;
-            break ;
-
-        case BTOKEN_TO:
-            basic_to(line, err, outfn) ;
             break ;
 
         case BTOKEN_GOTO:
@@ -959,7 +1088,23 @@ static void exec_one_statement(basic_line_t *line, exec_context_t *current, exec
             break ;
 
         case BTOKEN_GOSUB:
-            basic_gosub(line, nextline, err, outfn) ;
+            basic_gosub(line, current, nextline, err, outfn) ;
+            break ;            
+
+        case BTOKEN_RETURN:
+            basic_return(line, nextline, err, outfn) ;
+            break ;
+
+        case BTOKEN_NEXT:
+            basic_next(line, nextline, err, outfn) ;
+            break ;
+
+        case BTOKEN_IF:
+            basic_if(line, current, nextline, err, outfn);
+            break ;
+
+        case BTOKEN_TO:
+            basic_to(line, err, outfn) ;
             break ;
 
         case BTOKEN_SAVE:

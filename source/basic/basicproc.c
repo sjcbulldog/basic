@@ -29,13 +29,12 @@ static token_table_t tokens[] =
     { BTOKEN_LET, "LET"},
     { BTOKEN_IF, "IF"},
     { BTOKEN_THEN, "THEN"},
-    { BTOKEN_ELSE, "ELSE"},
-    { BTOKEN_ENDIF, "ENDIF"},
     { BTOKEN_FOR, "FOR"},
     { BTOKEN_NEXT, "NEXT"},
     { BTOKEN_TO, "TO"},
     { BTOKEN_GOTO, "GOTO"},
     { BTOKEN_GOSUB, "GOSUB"},
+    { BTOKEN_RETURN, "RETURN"},
     { BTOKEN_SAVE, "SAVE"},
     { BTOKEN_LOAD, "LOAD"},
     { BTOKEN_STEP, "STEP"},
@@ -88,7 +87,19 @@ void basic_destroy_line(basic_line_t *line)
         switch (line->tokens_[0])
         {
             case BTOKEN_DIM:
-                break;
+            {
+                uint32_t index = 1 ;
+
+                while (index < line->count_) {
+                    basic_str_destroy(getU32(line, index)) ;
+                    index += 4 ;
+
+                    uint32_t dimcnt = getU32(line, index) ;
+                    index += 4 ;
+                    index += dimcnt * 4 ;
+                }
+            }
+            break;
 
             case BTOKEN_LOAD:
             case BTOKEN_SAVE:
@@ -96,12 +107,17 @@ void basic_destroy_line(basic_line_t *line)
                 break;
 
             case BTOKEN_LET_SIMPLE:
+                basic_str_destroy(getU32(line, 1)) ;
                 basic_expr_destroy(getU32(line, 5));
                 break;
 
             case BTOKEN_LET_ARRAY:
             {
-                int index = 5;
+                int index = 1;
+
+                basic_str_destroy(getU32(line, index)) ;
+                index += 4 ;
+
                 uint32_t dimcnt = getU32(line, index);
                 index += 4;
 
@@ -137,13 +153,21 @@ void basic_destroy_line(basic_line_t *line)
             case BTOKEN_CLEAR:
             case BTOKEN_FLIST:
             case BTOKEN_CLS:
+            case BTOKEN_GOTO:
+            case BTOKEN_GOSUB:
+            case BTOKEN_RETURN:
                 break;
 
             case BTOKEN_DEF:
                 basic_userfn_destroy(getU32(line, 1));
                 break;
 
+            case BTOKEN_IF:
+                basic_expr_destroy(getU32(line, 1));
+                break ;
+
             case BTOKEN_FOR:
+                basic_str_destroy(getU32(line, 1)) ;
                 basic_expr_destroy(getU32(line, 5)) ;
                 basic_expr_destroy(getU32(line, 9)) ;
                 basic_expr_destroy(getU32(line, 13)) ;
@@ -277,7 +301,9 @@ static const char *parse_varname(const char *line, uint32_t *varindex, basic_err
         return NULL ;
     }
 
-    if (!basic_var_get(keyword, varindex, err)) {
+    *varindex = basic_str_create_str(keyword) ;
+    if (*varindex == BASIC_STR_INVALID) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
         return NULL ;
     }
 
@@ -665,6 +691,114 @@ static const char* parse_for(basic_line_t* bline, const char* line, basic_err_t*
     return line ;
 }
 
+static const char* parse_list(basic_line_t* bline, const char* line, basic_err_t* err)
+{
+    int start = 0 ;
+    int end = 0x7fffffff ;
+
+    line = skipSpaces(line) ;
+    if (*line != '\0' && *line != ':') {
+        //
+        // Starting line
+        //
+        if (*line != '-') {
+            line = basic_expr_parse_int(line, &start, err) ;
+            if (line == NULL)
+                return NULL ;
+
+            line = skipSpaces(line) ;
+        }
+
+        //
+        // We have parsed the starting line number, should be either at
+        // a dash or at the end of the statement
+        //
+        if (*line == '\0' || *line == ':') {
+            //
+            // Just a single line number, set start and end to the same line
+            end = start ;
+        }
+        else {
+            //
+            // Ok there should be a dash next
+            //
+            if (*line != '-') {
+                *err = BASIC_ERR_EXPECTED_DASH ;
+                return NULL ;
+            }
+
+            line = skipSpaces(line + 1) ;
+
+            if (*line != '\0' && *line != ':') {
+                //
+                // This is the case of START - END
+                //
+                line = basic_expr_parse_int(line, &start, err) ;
+                if (line == NULL)
+                    return NULL ;
+            } else {
+                //
+                // This is the case of START -
+                //
+            }
+        }
+    }
+
+    if (!add_uint32(bline, (uint32_t)start)) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+        return NULL ;
+    } 
+
+    if (!add_uint32(bline, (uint32_t)end)) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+        return NULL ;
+    }     
+
+    return line ;
+}
+
+static const char *parse_goto_gosub(basic_line_t* bline, const char* line, basic_err_t* err)
+{
+    int value ;
+
+    line = skipSpaces(line) ;
+    line = basic_expr_parse_int(line, &value, err) ;
+    if (line == NULL)
+        return NULL ;
+
+    if (!add_uint32(bline, (uint32_t)value)) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+        return NULL ;
+    }
+
+    return line ;
+}
+
+static const char *parse_if(basic_line_t* bline, const char* line, basic_err_t* err)
+{
+    uint32_t expridx ;
+    uint8_t token ;
+
+    line = skipSpaces(line) ;
+    line = basic_expr_parse(line, 0, NULL, &expridx, err) ;
+    if (line == NULL)
+        return NULL ;
+
+    if (!add_uint32(bline, expridx)) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+        return NULL ;
+    }
+
+    line = skipSpaces(line) ;
+    line = parse_keyword(line, &token, err) ;
+    if (line == NULL || token != BTOKEN_THEN) {
+        *err = BASIC_ERR_EXPECTED_THEN ;
+        return NULL ;
+    }
+
+    return line ;
+}
+
 static const char* tokenize_one(const char* line, basic_line_t** bline, basic_err_t* err)
 {
     basic_line_t* ret;
@@ -711,14 +845,17 @@ static const char* tokenize_one(const char* line, basic_line_t** bline, basic_er
         *err = BASIC_ERR_INVALID_TOKEN;
         ret = NULL;
     }
-    else if (token == BTOKEN_CLEAR || token == BTOKEN_CLS || token == BTOKEN_ELSE || token == BTOKEN_ENDIF ||
-        token == BTOKEN_LIST || token == BTOKEN_RUN || token == BTOKEN_THEN || token == BTOKEN_FLIST)
+    else if (token == BTOKEN_CLEAR || token == BTOKEN_CLS || token == BTOKEN_RUN || 
+             token == BTOKEN_THEN || token == BTOKEN_FLIST || token == BTOKEN_RETURN)
     {
         line = skipSpaces(line);
         if (*line != '\0' && *line != ':') {
             *err = BASIC_ERR_EXTRA_CHARS;
             line = NULL ;
         }
+    }
+    else if (token == BTOKEN_LIST) {
+        line = parse_list(ret, line, err) ;
     }
     else if (token == BTOKEN_REM) {
         ret->extra_ = _strdup(line);
@@ -746,6 +883,12 @@ static const char* tokenize_one(const char* line, basic_line_t** bline, basic_er
     else if (token == BTOKEN_FOR) {
         line = parse_for(ret, line, err) ;
     }
+    else if (token == BTOKEN_GOTO || token == BTOKEN_GOSUB) {
+        line = parse_goto_gosub(ret, line, err) ;
+    }
+    else if (token == BTOKEN_IF) {
+        line = parse_if(ret, line, err);
+    }
     else if (token == BTOKEN_NEXT) {
         line = parse_next(ret, line, err) ;
     }
@@ -763,22 +906,6 @@ static const char* tokenize_one(const char* line, basic_line_t** bline, basic_er
     }
     return line ;
 }
-
-#ifdef _DUMP_TOKENS
-static void dump_tokens(basic_line_t* line, const char* text, int lineno)
-{
-    printf("%d:'", lineno);
-    while (*text && *text != '\n' && *text != ':') {
-        putchar(*text++);
-    }
-    printf("'\n");
-    printf("  %d:", line->count_);
-    for (int i = 0; i < line->count_; i++) {
-        printf(" %02x ", line->tokens_[i], line->tokens_[i]);
-    }
-    printf("\n");
-}
-#endif
 
 static basic_line_t *tokenize(const char *line, basic_err_t *err)
 {
@@ -802,9 +929,6 @@ static basic_line_t *tokenize(const char *line, basic_err_t *err)
     }
 
     while (true) {
-#ifdef _DUMP_TOKENS
-        const char* save = line;
-#endif
         if (first) {
             line = tokenize_one(line, &ret, err) ;
             if (line == NULL)
@@ -812,19 +936,11 @@ static basic_line_t *tokenize(const char *line, basic_err_t *err)
 
             ret->lineno_ = lineno ;
             first = false ;
-
-#ifdef _DUMP_TOKENS
-            dump_tokens(ret, save, lineno);
-#endif
         }
         else {
             line = tokenize_one(line, &child, err) ;
             if (line == NULL)
                 return NULL ;
-
-#ifdef _DUMP_TOKENS
-            dump_tokens(child, save, lineno);
-#endif
 
             if (last == NULL) {
                 ret->children_ = child ;
@@ -840,12 +956,17 @@ static basic_line_t *tokenize(const char *line, basic_err_t *err)
         if (*line == '\0')
             break ;
 
-        if (*line != ':') {
+        //
+        // The form if an IF statement is IF expr THEN stmt1:stmt2:stmt3 ...
+        // We want stmt1 to be the first child
+        //
+        if (*line != ':' && ret->tokens_[0] != BTOKEN_IF) {
             *err = BASIC_ERR_EXTRA_CHARS ;
             return NULL ;
         }
 
-        line++ ;
+        if (ret->tokens_[0] != BTOKEN_IF)
+            line++ ;
     }
 
     return ret ;

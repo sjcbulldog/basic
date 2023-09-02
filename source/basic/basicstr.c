@@ -16,12 +16,20 @@ typedef struct one_string
     char *string_ ;
     uint32_t allocated_ ;
     struct one_string *next_ ;
+    uint32_t ref_cnt_ ;
+    bool frozen_ ;
 } one_string_t ;
 
 static one_string_t *string_table = NULL ;
 
-uint32_t str_create_str(const char *strval)
+uint32_t basic_str_create_str(const char *strval)
 {
+    for(one_string_t *one = string_table ; one != NULL ; one = one->next_) {
+        if (one->string_ != NULL && strcmp(one->string_, strval) == 0 && one->frozen_) {
+            return (uint32_t)one ;
+        }
+    }
+
     one_string_t *str = (one_string_t *)malloc(sizeof(one_string_t)) ;
     if (str == NULL)
         return BASIC_STR_INVALID ;
@@ -29,6 +37,8 @@ uint32_t str_create_str(const char *strval)
     str->next_ = string_table ;
     str->string_ = _strdup(strval) ;
     str->allocated_ = strlen(strval) + 1 ;
+    str->frozen_ = true ;
+    str->ref_cnt_ = 1 ;
     string_table = str ;
     return (uint32_t)str ;
 }
@@ -42,14 +52,14 @@ uint32_t basic_str_create()
     str->next_ = string_table ;
     str->string_ = NULL ;
     str->allocated_ = 0 ;
+    str->frozen_ = false ;
+    str->ref_cnt_ = 0xffffffff ;
     string_table = str ;
     return (uint32_t)str ;
 }
 
-void basic_str_destroy(uint32_t index)
+static void basic_str_destroy_int(one_string_t *str)
 {
-    one_string_t *str = (one_string_t *)index ;
-
     if (str == string_table) {
         //
         // It is the first entry in the table
@@ -65,6 +75,29 @@ void basic_str_destroy(uint32_t index)
 
     if (str->string_)
         free(str->string_) ;
+
+    free(str);
+}
+
+void basic_str_destroy(uint32_t index)
+{
+    one_string_t *str = (one_string_t *)index ;
+
+    if (str->frozen_) {
+        str->ref_cnt_-- ;
+        if (str->ref_cnt_ == 0)
+            basic_str_destroy_int(str);
+    }
+    else {
+        basic_str_destroy_int(str) ;
+    }
+}
+
+void basic_str_clear_all()
+{
+    while (string_table != NULL) {
+        basic_str_destroy_int(string_table);
+    }
 }
 
 bool basic_str_add_int(uint32_t h, int num)
@@ -85,6 +118,7 @@ extern bool basic_str_add_str(uint32_t h, const char *str)
 {
     one_string_t *one = (one_string_t *)h ;
 
+    assert(one->frozen_ == false) ;
     uint32_t needed = (one->string_ ? strlen(one->string_) : 0) + strlen(str) + 1 ;
     if (needed > one->allocated_) {
         int size = needed / MY_STR_BLOCK_SIZE ;

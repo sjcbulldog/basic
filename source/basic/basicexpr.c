@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <assert.h>
 #include <malloc.h>
+#include <math.h>
 
 #ifndef DESKTOP
 #define _stricmp strcasecmp
@@ -36,18 +37,29 @@ operator_table_t operators[] =
     { BASIC_OPERATOR_PLUS, "+" , 4},
     { BASIC_OPERATOR_MINUS, "-", 4 },
     { BASIC_OPERATOR_TIMES, "*", 3 },
-    { BASIC_OPERATOR_DIVIDE, "/", 3 },            
+    { BASIC_OPERATOR_DIVIDE, "/", 3 },
+    { BASIC_OPERATOR_POWER, "^", 2 },
+    { BASIC_OPERATOR_NOT_EQUAL, "<>", 5},
+    { BASIC_OPERATOR_EQUAL, "=", 5 },
+    { BASIC_OPERATOR_GREATER, ">", 5 },
+    { BASIC_OPERATOR_GREATER_EQ, ">", 5 },
+    { BASIC_OPERATOR_LESS, "<", 5 },
+    { BASIC_OPERATOR_LESS_EQ, "<=", 5 },
+    { BASIC_OPERATOR_OR, "OR", 6 },
+    { BASIC_OPERATOR_AND, "AND", 6 },
 } ;
 
 static basic_value_t* func_int(int count, basic_value_t** args, basic_err_t *err);
 static basic_value_t* func_rnd(int count, basic_value_t** args, basic_err_t *err);
 static basic_value_t *func_mem(int count, basic_value_t** args, basic_err_t *err) ;
+static basic_value_t *func_sqrt(int count, basic_value_t** args, basic_err_t *err) ;
 
 function_table_t functions[] =
 {
     { 1, "INT", func_int },
     { 1, "RND", func_rnd },
     { 1, "MEM", func_mem },
+    { 1, "SQRT", func_sqrt},
 };
 
 const char* basic_expr_parse_dims_const(const char* line, uint32_t* dimcnt, uint32_t* dims, basic_err_t* err)
@@ -604,16 +616,23 @@ bool basic_var_add_dims(uint32_t index, uint32_t dimcnt, uint32_t *dims, basic_e
     return true ;
 }
 
+void basic_var_clear_all()
+{
+    while (vars != NULL) {
+        basic_var_destroy(vars->index_) ;
+    }
+}
+
 static void basic_destroy_operand(basic_operand_t *operand)
 {
     switch(operand->type_) {
         case BASIC_OPERAND_TYPE_CONST:
-            basic_destroy_value(operand->operand_.const_value_);
+            basic_destroy_value(operand->operand_.const_);
             break ;
 
         case BASIC_OPERAND_TYPE_OPERATOR:
-            basic_destroy_operand(operand->operand_.operator_args_.left_) ;
-            basic_destroy_operand(operand->operand_.operator_args_.right_) ;
+            basic_destroy_operand(operand->operand_.operator_.left_) ;
+            basic_destroy_operand(operand->operand_.operator_.right_) ;
             break ;
 
         case BASIC_OPERAND_TYPE_VAR:
@@ -626,17 +645,17 @@ static void basic_destroy_operand(basic_operand_t *operand)
             break; 
 
         case BASIC_OPERAND_TYPE_FUNCTION:
-            for (int i = 0; i < operand->operand_.function_args_.func_->num_args_; i++) {
-                basic_destroy_operand(operand->operand_.function_args_.args_[i]);
+            for (int i = 0; i < operand->operand_.function_.func_->num_args_; i++) {
+                basic_destroy_operand(operand->operand_.function_.args_[i]);
             }
-            free(operand->operand_.function_args_.args_);
+            free(operand->operand_.function_.args_);
             break;
 
         case BASIC_OPERAND_TYPE_USERFN:
-            for (int i = 0; i < operand->operand_.userfn_args_.func_->argcnt_; i++) {
-                basic_destroy_operand(operand->operand_.userfn_args_.args_[i]);
+            for (int i = 0; i < operand->operand_.userfn_.func_->argcnt_; i++) {
+                basic_destroy_operand(operand->operand_.userfn_.args_[i]);
             }
-            free(operand->operand_.userfn_args_.args_);
+            free(operand->operand_.userfn_.args_);
             break;    
 
         case BASIC_OPERAND_TYPE_BOUNDV:
@@ -672,18 +691,18 @@ static basic_operand_t *create_const_operand(basic_value_t *value)
         return NULL ;
 
     ret->type_ = BASIC_OPERAND_TYPE_CONST ;
-    ret->operand_.const_value_ = value ;
+    ret->operand_.const_ = value ;
     return ret ;
 }
 
-static basic_operand_t *create_var_operand(uint32_t varindex, int dimcnt, basic_operand_t **dims)
+static basic_operand_t *create_var_operand(uint32_t varname, int dimcnt, basic_operand_t **dims)
 {
     basic_operand_t *ret = (basic_operand_t *)malloc(sizeof(basic_operand_t)) ;
     if (ret == NULL)
         return NULL ;
 
     ret->type_ = BASIC_OPERAND_TYPE_VAR ;
-    ret->operand_.var_.varindex_ = varindex ;
+    ret->operand_.var_.varname_ = varname ;
     ret->operand_.var_.dimcnt_ = dimcnt ;
     if (dimcnt == 0) {
         ret->operand_.var_.dims_ = NULL ;
@@ -706,14 +725,14 @@ static basic_operand_t* create_fun_operand(function_table_t *fun)
         return NULL;
 
     ret->type_ = BASIC_OPERAND_TYPE_FUNCTION;
-    ret->operand_.function_args_.func_ = fun;
-    ret->operand_.function_args_.args_ = (basic_operand_t**)malloc(sizeof(basic_operand_t*) * fun->num_args_);
-    if (ret->operand_.function_args_.args_ == NULL) {
+    ret->operand_.function_.func_ = fun;
+    ret->operand_.function_.args_ = (basic_operand_t**)malloc(sizeof(basic_operand_t*) * fun->num_args_);
+    if (ret->operand_.function_.args_ == NULL) {
         free(ret);
         return NULL;
     }
 
-    memset(ret->operand_.function_args_.args_, 0, sizeof(basic_operand_t*) * fun->num_args_);
+    memset(ret->operand_.function_.args_, 0, sizeof(basic_operand_t*) * fun->num_args_);
     return ret;
 }
 
@@ -724,14 +743,14 @@ static basic_operand_t* create_userfn_operand(basic_expr_user_fn_t *ufn)
         return NULL;
 
     ret->type_ = BASIC_OPERAND_TYPE_USERFN;
-    ret->operand_.userfn_args_.func_ = ufn ;
-    ret->operand_.userfn_args_.args_ = (basic_operand_t**)malloc(sizeof(basic_operand_t*) * ufn->argcnt_);
-    if (ret->operand_.userfn_args_.args_ == NULL) {
+    ret->operand_.userfn_.func_ = ufn ;
+    ret->operand_.userfn_.args_ = (basic_operand_t**)malloc(sizeof(basic_operand_t*) * ufn->argcnt_);
+    if (ret->operand_.userfn_.args_ == NULL) {
         free(ret);
         return NULL;
     }
 
-    memset(ret->operand_.function_args_.args_, 0, sizeof(basic_operand_t*) * ufn->argcnt_);
+    memset(ret->operand_.function_.args_, 0, sizeof(basic_operand_t*) * ufn->argcnt_);
     return ret;
 }
 
@@ -864,6 +883,27 @@ static basic_value_t* func_int(int count, basic_value_t** args, basic_err_t *err
     return create_number_value((int)v->value.nvalue_);
 }
 
+static basic_value_t* func_sqrt(int count, basic_value_t** args, basic_err_t *err)
+{
+    if (count != 1) {
+        *err = BASIC_ERR_BAD_ARG_COUNT;
+        return NULL;
+    }
+
+    basic_value_t* v = args[0];
+    if (v->type_ != BASIC_VALUE_TYPE_NUMBER) {
+        *err = BASIC_ERR_TYPE_MISMATCH;
+        return NULL;
+    }
+
+    if (v->value.nvalue_ < 0.0) {
+        *err = BASIC_ERR_INVALID_ARG_VALUE ;
+        return NULL ;
+    }
+
+    return create_number_value(sqrt(v->value.nvalue_)) ;
+}
+
 static int match_def_local(expr_ctxt_t *ctxt)
 {
     if (ctxt->argcnt_ > 0) {
@@ -977,7 +1017,6 @@ static const char *parse_operand(expr_ctxt_t *ctxt, const char *line, basic_oper
         *operand = create_const_operand(value) ;
     }
     else if (isalpha((uint8_t)*line)) {
-
         while (*line && isalpha((uint8_t)*line) && bind < BASIC_PARSE_BUFFER_LENGTH) {
             ctxt->parsebuffer[bind++] = toupper(*line++) ;
             if (bind > BASIC_MAX_VARIABLE_LENGTH) {
@@ -1002,7 +1041,7 @@ static const char *parse_operand(expr_ctxt_t *ctxt, const char *line, basic_oper
             }
 
             for (int i = 0; i < fun->num_args_; i++) {
-                line = parse_operand_top(line, 0, NULL, &(*operand)->operand_.function_args_.args_[i], err);
+                line = parse_operand_top(line, 0, NULL, &(*operand)->operand_.function_.args_[i], err);
                 if (line == NULL)
                     return NULL;
             }
@@ -1029,7 +1068,7 @@ static const char *parse_operand(expr_ctxt_t *ctxt, const char *line, basic_oper
                 }
 
                 for (int i = 0; i < ufn->argcnt_; i++) {
-                    line = parse_operand_top(line, 0, NULL, &(*operand)->operand_.userfn_args_.args_[i], err);
+                    line = parse_operand_top(line, 0, NULL, &(*operand)->operand_.userfn_.args_[i], err);
                     if (line == NULL)
                         return NULL;
                 }
@@ -1059,12 +1098,11 @@ static const char *parse_operand(expr_ctxt_t *ctxt, const char *line, basic_oper
                         return NULL;
                 }
 
-                uint32_t index;
-
-                if (!basic_var_get(ctxt->parsebuffer, &index, err)) {
-                    return NULL;
+                uint32_t index = basic_str_create_str(ctxt->parsebuffer) ;
+                if (index == BASIC_STR_INVALID) {
+                    *err = BASIC_ERR_OUT_OF_MEMORY ;
+                    return NULL ;
                 }
-
                 *operand = create_var_operand(index, dimcnt, dims);
             }
         }
@@ -1128,29 +1166,35 @@ static bool basic_operand_to_string(basic_operand_t *oper, uint32_t str)
     switch(oper->type_)
     {
         case BASIC_OPERAND_TYPE_CONST:
-            if (!value_to_string(str, oper->operand_.const_value_))
+            if (!value_to_string(str, oper->operand_.const_))
                 ret = false;
             break;
 
         case BASIC_OPERAND_TYPE_OPERATOR:
             {
-                if (!basic_operand_to_string(oper->operand_.operator_args_.left_, str))
+                if (!basic_operand_to_string(oper->operand_.operator_.left_, str))
                     ret = false ;
 
                 if (ret) {
-                    if (!basic_str_add_str(str, oper->operand_.operator_args_.operator_->string_))
+                    if (!basic_str_add_str(str, " "))
                         ret = false ;
+
+                    if (!basic_str_add_str(str, oper->operand_.operator_.operator_->string_))
+                        ret = false ;
+
+                    if (!basic_str_add_str(str, " "))
+                        ret = false ;                        
                 }
 
                 if (ret) {
-                    if (!basic_operand_to_string(oper->operand_.operator_args_.right_, str))
+                    if (!basic_operand_to_string(oper->operand_.operator_.right_, str))
                         ret = false ;
                 }
             }
             break;
 
         case BASIC_OPERAND_TYPE_VAR:
-            v = basic_var_get_name(oper->operand_.var_.varindex_);
+            v = basic_str_value(oper->operand_.var_.varname_);
             if (!basic_str_add_str(str, v))
                 ret = false;
 
@@ -1162,20 +1206,20 @@ static bool basic_operand_to_string(basic_operand_t *oper, uint32_t str)
             break ;
 
         case BASIC_OPERAND_TYPE_FUNCTION:
-            if (!basic_str_add_str(str, oper->operand_.function_args_.func_->string_)) {
+            if (!basic_str_add_str(str, oper->operand_.function_.func_->string_)) {
                 ret = false;
             }
 
-            if (ret && !basic_expr_operand_array_to_str(str, oper->operand_.function_args_.func_->num_args_, oper->operand_.function_args_.args_))
+            if (ret && !basic_expr_operand_array_to_str(str, oper->operand_.function_.func_->num_args_, oper->operand_.function_.args_))
                 ret = false;
             break ;
 
         case BASIC_OPERAND_TYPE_USERFN:
-            if (!basic_str_add_str(str, oper->operand_.userfn_args_.func_->name_)) {
+            if (!basic_str_add_str(str, oper->operand_.userfn_.func_->name_)) {
                 ret = false;
             }
 
-            if (ret && !basic_expr_operand_array_to_str(str, oper->operand_.userfn_args_.func_->argcnt_, oper->operand_.userfn_args_.args_))
+            if (ret && !basic_expr_operand_array_to_str(str, oper->operand_.userfn_.func_->argcnt_, oper->operand_.userfn_.args_))
                 ret = false;
             break ;
 
@@ -1238,7 +1282,7 @@ static basic_operand_t *createOperator(operator_table_t *t)
         return NULL ;
 
     ret->type_ = BASIC_OPERAND_TYPE_OPERATOR ;
-    ret->operand_.operator_args_.operator_ = t ;
+    ret->operand_.operator_.operator_ = t ;
     return ret;
 }
 
@@ -1247,8 +1291,8 @@ static void reduce(expr_ctxt_t *ctxt)
     basic_operand_t *op1 = pop_operator(ctxt) ;
     assert(op1->type_ == BASIC_OPERAND_TYPE_OPERATOR) ;
 
-    op1->operand_.operator_args_.left_ = pop_operand(ctxt) ;
-    op1->operand_.operator_args_.right_ = pop_operand(ctxt) ;
+    op1->operand_.operator_.left_ = pop_operand(ctxt) ;
+    op1->operand_.operator_.right_ = pop_operand(ctxt) ;
     push_operand(ctxt, op1);
 }
 
@@ -1318,7 +1362,7 @@ static const char *parse_expr(expr_ctxt_t *ctxt, const char *line, basic_operand
         while (ctxt->operator_top_ > 0) {
             op1 = peek_operator(ctxt) ;
             assert(op1->type_ == BASIC_OPERAND_TYPE_OPERATOR);
-            if (op1->operand_.operator_args_.operator_->prec_ > op2->operand_.operator_args_.operator_->prec_)
+            if (op1->operand_.operator_.operator_->prec_ > op2->operand_.operator_.operator_->prec_)
                 break; 
 
             reduce(ctxt) ;
@@ -1510,6 +1554,181 @@ static basic_value_t *eval_divide(basic_value_t *left, basic_value_t *right, bas
     return ret;
 }
 
+static basic_value_t *eval_power(basic_value_t *left, basic_value_t *right, basic_err_t *err)
+{
+    basic_value_t *ret ;
+
+    if (left->type_ == BASIC_VALUE_TYPE_STRING || right->type_ == BASIC_VALUE_TYPE_STRING) {
+        *err = BASIC_ERR_TYPE_MISMATCH ;
+        return NULL ;
+    }
+
+    double p = pow(left->value.nvalue_, right->value.nvalue_);
+    ret = create_number_value(p) ;
+
+    if (ret == NULL) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+    }
+
+    return ret;
+}
+
+static basic_value_t *eval_not_equal(basic_value_t *left, basic_value_t *right, basic_err_t *err)
+{
+    basic_value_t *ret ;
+
+    if (left->type_ == BASIC_VALUE_TYPE_STRING || right->type_ == BASIC_VALUE_TYPE_STRING) {
+        *err = BASIC_ERR_TYPE_MISMATCH ;
+        return NULL ;
+    }
+
+    double p = (left->value.nvalue_ != right->value.nvalue_) ;
+    ret = create_number_value(p) ;
+
+    if (ret == NULL) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+    }
+
+    return ret;
+}
+
+static basic_value_t *eval_equal(basic_value_t *left, basic_value_t *right, basic_err_t *err)
+{
+    basic_value_t *ret ;
+
+    if (left->type_ == BASIC_VALUE_TYPE_STRING || right->type_ == BASIC_VALUE_TYPE_STRING) {
+        *err = BASIC_ERR_TYPE_MISMATCH ;
+        return NULL ;
+    }
+
+    double p = (left->value.nvalue_ == right->value.nvalue_) ;
+    ret = create_number_value(p) ;
+
+    if (ret == NULL) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+    }
+
+    return ret;
+}
+
+static basic_value_t *eval_greater(basic_value_t *left, basic_value_t *right, basic_err_t *err)
+{
+    basic_value_t *ret ;
+
+    if (left->type_ == BASIC_VALUE_TYPE_STRING || right->type_ == BASIC_VALUE_TYPE_STRING) {
+        *err = BASIC_ERR_TYPE_MISMATCH ;
+        return NULL ;
+    }
+
+    double p = (left->value.nvalue_ > right->value.nvalue_) ;
+    ret = create_number_value(p) ;
+
+    if (ret == NULL) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+    }
+
+    return ret;
+}
+
+static basic_value_t *eval_greater_eq(basic_value_t *left, basic_value_t *right, basic_err_t *err)
+{
+    basic_value_t *ret ;
+
+    if (left->type_ == BASIC_VALUE_TYPE_STRING || right->type_ == BASIC_VALUE_TYPE_STRING) {
+        *err = BASIC_ERR_TYPE_MISMATCH ;
+        return NULL ;
+    }
+
+    double p = (left->value.nvalue_ >= right->value.nvalue_) ;
+    ret = create_number_value(p) ;
+
+    if (ret == NULL) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+    }
+
+    return ret;
+}
+
+static basic_value_t *eval_less(basic_value_t *left, basic_value_t *right, basic_err_t *err)
+{
+    basic_value_t *ret ;
+
+    if (left->type_ == BASIC_VALUE_TYPE_STRING || right->type_ == BASIC_VALUE_TYPE_STRING) {
+        *err = BASIC_ERR_TYPE_MISMATCH ;
+        return NULL ;
+    }
+
+    double p = (left->value.nvalue_ < right->value.nvalue_) ;
+    ret = create_number_value(p) ;
+
+    if (ret == NULL) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+    }
+
+    return ret;
+}
+
+static basic_value_t *eval_less_eq(basic_value_t *left, basic_value_t *right, basic_err_t *err)
+{
+    basic_value_t *ret ;
+
+    if (left->type_ == BASIC_VALUE_TYPE_STRING || right->type_ == BASIC_VALUE_TYPE_STRING) {
+        *err = BASIC_ERR_TYPE_MISMATCH ;
+        return NULL ;
+    }
+
+    double p = (left->value.nvalue_ <= right->value.nvalue_) ;
+    ret = create_number_value(p) ;
+
+    if (ret == NULL) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+    }
+
+    return ret;
+}
+
+static basic_value_t *eval_or(basic_value_t *left, basic_value_t *right, basic_err_t *err)
+{
+    basic_value_t *ret ;
+
+    if (left->type_ == BASIC_VALUE_TYPE_STRING || right->type_ == BASIC_VALUE_TYPE_STRING) {
+        *err = BASIC_ERR_TYPE_MISMATCH ;
+        return NULL ;
+    }
+
+    int l = fabs(left->value.nvalue_) > 1e-6 ;
+    int r = fabs(right->value.nvalue_) > 1e-6 ;
+    double p = (l || r) ;
+    ret = create_number_value(p) ;
+
+    if (ret == NULL) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+    }
+
+    return ret;
+}
+
+static basic_value_t *eval_and(basic_value_t *left, basic_value_t *right, basic_err_t *err)
+{
+    basic_value_t *ret ;
+
+    if (left->type_ == BASIC_VALUE_TYPE_STRING || right->type_ == BASIC_VALUE_TYPE_STRING) {
+        *err = BASIC_ERR_TYPE_MISMATCH ;
+        return NULL ;
+    }
+
+    int l = fabs(left->value.nvalue_) > 1e-6 ;
+    int r = fabs(right->value.nvalue_) > 1e-6 ;
+    double p = (l && r) ;
+    ret = create_number_value(p) ;
+
+    if (ret == NULL) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+    }
+
+    return ret;
+}
+
 static basic_value_t *eval_operator(operator_table_t *oper, int vcnt, char **names, basic_value_t **values, basic_operand_t *left, basic_operand_t *right, basic_err_t *err)
 {
     basic_value_t* ret = NULL;
@@ -1536,6 +1755,33 @@ static basic_value_t *eval_operator(operator_table_t *oper, int vcnt, char **nam
             break ;
         case BASIC_OPERATOR_DIVIDE:
             ret = eval_divide(leftval, rightval, err) ;
+            break ;      
+        case BASIC_OPERATOR_POWER:
+            ret = eval_power(leftval, rightval, err) ;
+            break ;
+        case BASIC_OPERATOR_NOT_EQUAL:
+            ret = eval_not_equal(leftval, rightval, err) ;
+            break ;        
+        case BASIC_OPERATOR_EQUAL:
+            ret = eval_equal(leftval, rightval, err) ;
+            break ;        
+        case BASIC_OPERATOR_GREATER:
+            ret = eval_greater(leftval, rightval, err) ;
+            break ;        
+        case BASIC_OPERATOR_GREATER_EQ:
+            ret = eval_greater_eq(leftval, rightval, err) ;
+            break ;        
+        case BASIC_OPERATOR_LESS:
+            ret = eval_less(leftval, rightval, err) ;
+            break ;        
+        case BASIC_OPERATOR_LESS_EQ:
+            ret = eval_less_eq(leftval, rightval, err) ;
+            break ;        
+        case BASIC_OPERATOR_OR:
+            ret = eval_or(leftval, rightval, err) ;
+            break ;        
+        case BASIC_OPERATOR_AND:
+            ret = eval_and(leftval, rightval, err) ;
             break ;        
     }
 
@@ -1563,18 +1809,25 @@ static basic_value_t *eval_node(basic_operand_t *op, int vcnt, char **names, bas
     switch(op->type_)
     {
         case BASIC_OPERAND_TYPE_CONST:
-            ret = clone_value(op->operand_.const_value_) ;
+            ret = clone_value(op->operand_.const_) ;
             break ;
         case BASIC_OPERAND_TYPE_OPERATOR:
-            ret = eval_operator(op->operand_.operator_args_.operator_, 
+            ret = eval_operator(op->operand_.operator_.operator_, 
                                 vcnt, names, values,
-                                op->operand_.operator_args_.left_,
-                                op->operand_.operator_args_.right_, err) ;
+                                op->operand_.operator_.left_,
+                                op->operand_.operator_.right_, err) ;
             break; 
         case BASIC_OPERAND_TYPE_VAR:
             {
+                uint32_t varidx ;
+                const char *varname = basic_str_value(op->operand_.var_.varname_);
+                assert(varname != NULL) ;
+
+                if (!basic_var_get(varname, &varidx, err))
+                    return NULL ;
+
                 if (op->operand_.var_.dimcnt_ == 0) {
-                    basic_value_t* val = basic_var_get_value(op->operand_.var_.varindex_);
+                    basic_value_t* val = basic_var_get_value(varidx);
                     if (val == NULL) {
                         *err = BASIC_ERR_NO_SUCH_VARIABLE;
                         ret = NULL;
@@ -1602,14 +1855,14 @@ static basic_value_t *eval_node(basic_operand_t *op, int vcnt, char **names, bas
                         dims[i] = (int)dimval->value.nvalue_;
                     }
 
-                    ret = basic_var_get_array_value(op->operand_.var_.varindex_, dims, err) ;
+                    ret = basic_var_get_array_value(varidx, dims, err) ;
                 }
             }
             break; 
 
         case BASIC_OPERAND_TYPE_FUNCTION:
             {
-                int argcnt = op->operand_.function_args_.func_->num_args_;
+                int argcnt = op->operand_.function_.func_->num_args_;
                 basic_value_t** argvals = (basic_value_t**)malloc(sizeof(basic_value_t*) * argcnt);
                 if (argvals == NULL) {
                     *err = BASIC_ERR_OUT_OF_MEMORY;
@@ -1617,13 +1870,13 @@ static basic_value_t *eval_node(basic_operand_t *op, int vcnt, char **names, bas
                 }
 
                 for (int i = 0; i < argcnt ; i++) {
-                    basic_operand_t* argexpr = op->operand_.function_args_.args_[i];
+                    basic_operand_t* argexpr = op->operand_.function_.args_[i];
                     argvals[i] = eval_node(argexpr,  0, NULL, NULL, err);
                     if (argvals[i] == NULL)
                         return NULL;
                 }
 
-                ret = op->operand_.function_args_.func_->eval_(argcnt, argvals, err);
+                ret = op->operand_.function_.func_->eval_(argcnt, argvals, err);
                 for (int i = 0; i < argcnt; i++) {
                     basic_destroy_value(argvals[i]);
                 }
@@ -1634,7 +1887,7 @@ static basic_value_t *eval_node(basic_operand_t *op, int vcnt, char **names, bas
 
         case BASIC_OPERAND_TYPE_USERFN:
             {
-                int argcnt = op->operand_.userfn_args_.func_->argcnt_;
+                int argcnt = op->operand_.userfn_.func_->argcnt_;
                 basic_value_t** argvals = (basic_value_t**)malloc(sizeof(basic_value_t*) * argcnt);
                 if (argvals == NULL) {
                     *err = BASIC_ERR_OUT_OF_MEMORY;
@@ -1642,15 +1895,15 @@ static basic_value_t *eval_node(basic_operand_t *op, int vcnt, char **names, bas
                 }
 
                 for (int i = 0; i < argcnt ; i++) {
-                    basic_operand_t* argexpr = op->operand_.userfn_args_.args_[i];
+                    basic_operand_t* argexpr = op->operand_.userfn_.args_[i];
                     argvals[i] = eval_node(argexpr,  0, NULL, NULL, err);
                     if (argvals[i] == NULL)
                         return NULL;
                 }
 
-                ret = basic_expr_eval(op->operand_.userfn_args_.func_->expridx_,
-                                      op->operand_.userfn_args_.func_->argcnt_,
-                                      op->operand_.userfn_args_.func_->args_, 
+                ret = basic_expr_eval(op->operand_.userfn_.func_->expridx_,
+                                      op->operand_.userfn_.func_->argcnt_,
+                                      op->operand_.userfn_.func_->args_, 
                                       argvals, err);
                 for (int i = 0; i < argcnt; i++) {
                     basic_destroy_value(argvals[i]);
@@ -1709,6 +1962,25 @@ uint32_t basic_expr_to_string(uint32_t index)
 
     return ret ;
 }
+
+void basic_expr_clear_all()
+{
+    while (exprs) {
+        basic_expr_destroy(exprs->index_);
+    }
+}
+
+#ifdef _DUMP_EXPRS_
+void basic_expr_dump()
+{
+    for (basic_expr_t* expr = exprs; expr != NULL; expr = expr->next_) {
+        uint32_t exprhand = basic_expr_to_string(expr->index_);
+        const char* exprstr = basic_str_value(exprhand);
+        printf("%d: '%s'\n", expr->index_, exprstr);
+        basic_str_destroy(exprhand);
+    }
+}
+#endif
 
 basic_expr_user_fn_t* get_user_fn_from_index(uint32_t index)
 {
@@ -1810,14 +2082,9 @@ bool basic_userfn_destroy(uint32_t index)
     return true;
 }
 
-#ifdef _DUMP_EXPRS_
-void basic_expr_dump()
+void basic_userfn_clear_all()
 {
-    for (basic_expr_t* expr = exprs; expr != NULL; expr = expr->next_) {
-        uint32_t exprhand = basic_expr_to_string(expr->index_);
-        const char* exprstr = basic_str_value(exprhand);
-        printf("%d: '%s'\n", expr->index_, exprstr);
-        basic_str_destroy(exprhand);
+    while (userfns) {
+        basic_userfn_destroy(userfns->index_) ;
     }
 }
-#endif

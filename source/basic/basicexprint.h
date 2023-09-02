@@ -16,6 +16,15 @@ typedef enum operator_type {
     BASIC_OPERATOR_MINUS = 2,
     BASIC_OPERATOR_TIMES = 3,
     BASIC_OPERATOR_DIVIDE = 4,
+    BASIC_OPERATOR_POWER = 5,
+    BASIC_OPERATOR_NOT_EQUAL = 6,
+    BASIC_OPERATOR_EQUAL = 7,
+    BASIC_OPERATOR_GREATER = 8,
+    BASIC_OPERATOR_GREATER_EQ = 9,
+    BASIC_OPERATOR_LESS = 10,
+    BASIC_OPERATOR_LESS_EQ = 11,
+    BASIC_OPERATOR_OR = 12,
+    BASIC_OPERATOR_AND = 13,    
 } operator_type_t ;
 
 typedef struct operator_table
@@ -36,7 +45,7 @@ typedef struct basic_operator_args
 
 typedef struct basic_var_args
 {
-    uint32_t varindex_ ;
+    uint32_t varname_ ;
     int dimcnt_ ;
     basic_operand_t** dims_;
 } basic_var_args_t ;
@@ -75,10 +84,10 @@ typedef struct basic_operand
     uint8_t type_ ;
     union {
         basic_var_args_t var_ ;
-        basic_value_t *const_value_ ;
-        basic_operator_args_t operator_args_ ;
-        basic_function_args_t function_args_;
-        user_function_args_t userfn_args_ ;
+        basic_value_t *const_ ;
+        basic_operator_args_t operator_ ;
+        basic_function_args_t function_;
+        user_function_args_t userfn_ ;
         const char *boundv_ ;
     } operand_ ;
 } basic_operand_t ;

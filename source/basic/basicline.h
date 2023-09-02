@@ -19,13 +19,12 @@ typedef enum btokens {
     BTOKEN_LET,
     BTOKEN_IF,
     BTOKEN_THEN,
-    BTOKEN_ELSE,
-    BTOKEN_ENDIF,
     BTOKEN_FOR,
     BTOKEN_NEXT,
     BTOKEN_TO,
     BTOKEN_GOTO,
     BTOKEN_GOSUB,
+    BTOKEN_RETURN,
     BTOKEN_SAVE,
     BTOKEN_LOAD,
     BTOKEN_STEP,
@@ -63,6 +62,12 @@ typedef struct for_stack_entry
     uint32_t stepidx_ ;
     struct for_stack_entry *next_ ;
 } for_stack_entry_t ;
+
+typedef struct gosub_stack_entry
+{
+    exec_context_t context_ ;
+    struct gosub_stack_entry *next_ ;
+} gosub_stack_entry_t ;
 
 typedef struct token_table
 {
