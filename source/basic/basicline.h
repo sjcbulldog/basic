@@ -30,6 +30,8 @@ typedef enum btokens {
     BTOKEN_STEP,
     BTOKEN_PRINT,
     BTOKEN_FLIST,
+    BTOKEN_DEL,
+    BTOKEN_RENAME,
     BTOKEN_REM,
     BTOKEN_DIM,
     BTOKEN_DEF,

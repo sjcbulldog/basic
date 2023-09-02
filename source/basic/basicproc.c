@@ -40,6 +40,8 @@ static token_table_t tokens[] =
     { BTOKEN_STEP, "STEP"},
     { BTOKEN_PRINT, "PRINT"},
     { BTOKEN_FLIST, "FLIST"},
+    { BTOKEN_DEL, "DEL"},
+    { BTOKEN_RENAME, "RENAME"},        
     { BTOKEN_REM, "REM"},    
     { BTOKEN_DIM, "DIM"},
     { BTOKEN_DEF, "DEF"},
@@ -158,6 +160,14 @@ void basic_destroy_line(basic_line_t *line)
             case BTOKEN_RETURN:
                 break;
 
+            case BTOKEN_DEL:
+                basic_expr_destroy(getU32(line, 1));
+                break;    
+
+            case BTOKEN_RENAME:
+                basic_expr_destroy(getU32(line, 1));
+                break;                         
+
             case BTOKEN_DEF:
                 basic_userfn_destroy(getU32(line, 1));
                 break;
@@ -240,27 +250,14 @@ static bool add_uint32(basic_line_t *line, uint32_t value)
 
 static const char *parse_keyword(const char *line, uint8_t *token, basic_err_t *err)
 {
-    char keyword[BASIC_MAX_KEYWORD_LENGTH + 1] ;
-    int stored = 0 ;
-
     *err = BASIC_ERR_NONE ;
-
     line = skipSpaces(line) ;
 
-    while (isalpha((uint8_t)*line))
-    {
-        keyword[stored++] = *line++ ;
-        if (stored == BASIC_MAX_KEYWORD_LENGTH + 1) {
-            *err = BASIC_ERR_KEYWORD_TOO_LONG ;
-            return NULL ;
-        }
-    }
-    keyword[stored] = '\0' ;
-
     for(int i = 0 ; i < sizeof(tokens)/sizeof(tokens[0]) ; i++) {
-        if (_stricmp(tokens[i].str_, keyword) == 0) {
+        int len = strlen(tokens[i].str_) ;
+        if (strncasecmp(line, tokens[i].str_, len) == 0) {
             *token = tokens[i].token_ ;
-            return line ;
+            return line + len ;
         }
     }
 
@@ -277,7 +274,12 @@ static const char *parse_varname(const char *line, uint32_t *varindex, basic_err
 
     line = skipSpaces(line) ;
 
-    while (isalpha((uint8_t)*line))
+    if (!isalpha((uint8_t)*line)) {
+        *err = BASIC_ERR_INVALID_VARNAME ;
+        return NULL ;
+    }
+
+    while (isalpha((uint8_t)*line) || isdigit((uint8_t)*line))
     {
         keyword[stored++] = *line++ ;
         if (stored == BASIC_MAX_VARIABLE_LENGTH + 1) {
@@ -537,19 +539,21 @@ static const char *parse_let(basic_line_t *bline, const char *line, basic_err_t 
     return line ;
 }
 
-static const char *parse_loadsave(basic_line_t *bline, const char *line, basic_err_t *err)
+static const char *parse_strings(int cnt, basic_line_t *bline, const char *line, basic_err_t *err)
 {
     uint32_t exprindex ;
 
-    line = basic_expr_parse(line, 0, NULL, &exprindex, err) ;
-    if (line == NULL) {
-        return NULL ;
-    }
+    while (cnt-- > 0) {
+        line = basic_expr_parse(line, 0, NULL, &exprindex, err) ;
+        if (line == NULL) {
+            return NULL ;
+        }
 
-    if (!add_uint32(bline, exprindex)) {
-        *err = BASIC_ERR_OUT_OF_MEMORY ;
-        return NULL ;        
-    }    
+        if (!add_uint32(bline, exprindex)) {
+            *err = BASIC_ERR_OUT_OF_MEMORY ;
+            return NULL ;        
+        }    
+    }
 
     return line ;    
 }
@@ -892,8 +896,11 @@ static const char* tokenize_one(const char* line, basic_line_t** bline, basic_er
     else if (token == BTOKEN_NEXT) {
         line = parse_next(ret, line, err) ;
     }
-    else if (token == BTOKEN_LOAD || token == BTOKEN_SAVE) {
-        line = parse_loadsave(ret, line, err) ;
+    else if (token == BTOKEN_LOAD || token == BTOKEN_SAVE || token == BTOKEN_DEL) {
+        line = parse_strings(1, ret, line, err) ;
+    }
+    else if (token == BTOKEN_RENAME) {
+        line = parse_strings(2, ret, line, err) ;        
     }
     else if (token == BTOKEN_DIM) {
         line = parse_dim(ret, line, err) ;
@@ -965,7 +972,7 @@ static basic_line_t *tokenize(const char *line, basic_err_t *err)
             return NULL ;
         }
 
-        if (ret->tokens_[0] != BTOKEN_IF)
+        if (ret->tokens_[0] != BTOKEN_IF && ret->children_ == NULL)
             line++ ;
     }
 

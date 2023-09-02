@@ -21,7 +21,7 @@ static cyhal_trng_t trng_obj ;
 static basic_expr_user_fn_t* get_user_fn_from_name(const char *name) ;
 static basic_value_t *eval_node(basic_operand_t *op, int cntv, char **names, basic_value_t **values, basic_err_t *err) ;
 static const char* parse_operand_top(const char* line, int argcntg, char **argnames, basic_operand_t** ret, basic_err_t* err);
-static bool basic_operand_to_string(basic_operand_t* oper, uint32_t str);
+static bool basic_operand_to_string(basic_operand_t* parent, basic_operand_t* oper, uint32_t str);
 
 static uint32_t next_var_index = 1 ;
 static basic_var_t *vars = NULL ;
@@ -935,7 +935,20 @@ static const char *parse_operand(expr_ctxt_t *ctxt, const char *line, basic_oper
         }
         line++;
     }
-    else if (isdigit((uint8_t)*line)) {
+    else if (isdigit((uint8_t)*line) || *line == '-' || *line == '+' || *line == '.') {
+
+        bool odd = false ;
+        while ((*line == '-' || *line == '+') && bind < sizeof(ctxt->parsebuffer)) {
+            if (*line == '-') {
+                odd = !odd ;
+            }
+            line++ ;
+        }
+
+        if (odd) {
+            ctxt->parsebuffer[bind++] = '-' ;
+        }
+
         //
         // Parse a constant number value
         //
@@ -1017,7 +1030,7 @@ static const char *parse_operand(expr_ctxt_t *ctxt, const char *line, basic_oper
         *operand = create_const_operand(value) ;
     }
     else if (isalpha((uint8_t)*line)) {
-        while (*line && isalpha((uint8_t)*line) && bind < BASIC_PARSE_BUFFER_LENGTH) {
+        while (*line && (isalpha((uint8_t)*line) || isdigit((uint8_t)*line)) && bind < BASIC_PARSE_BUFFER_LENGTH) {
             ctxt->parsebuffer[bind++] = toupper(*line++) ;
             if (bind > BASIC_MAX_VARIABLE_LENGTH) {
                 *err = BASIC_ERR_VARIABLE_TOO_LONG;
@@ -1144,7 +1157,7 @@ bool basic_expr_operand_array_to_str(uint32_t str, int cnt, basic_operand_t **ar
                 return BASIC_STR_INVALID;
             }
         }
-        if (!basic_operand_to_string(args[i], str)) {
+        if (!basic_operand_to_string(NULL, args[i], str)) {
             basic_str_destroy(str);
             return BASIC_STR_INVALID;
         }
@@ -1158,7 +1171,7 @@ bool basic_expr_operand_array_to_str(uint32_t str, int cnt, basic_operand_t **ar
     return str;
 }
 
-static bool basic_operand_to_string(basic_operand_t *oper, uint32_t str)
+static bool basic_operand_to_string(basic_operand_t *parent, basic_operand_t *oper, uint32_t str)
 {
     bool ret = true ;
     const char *v ;
@@ -1172,7 +1185,16 @@ static bool basic_operand_to_string(basic_operand_t *oper, uint32_t str)
 
         case BASIC_OPERAND_TYPE_OPERATOR:
             {
-                if (!basic_operand_to_string(oper->operand_.operator_.left_, str))
+                bool parens = false ;
+
+                assert(parent == NULL || parent->type_ == BASIC_OPERAND_TYPE_OPERATOR);
+                if (parent != NULL && parent->operand_.operator_.operator_->prec_ < oper->operand_.operator_.operator_->prec_) {
+                    if (!basic_str_add_str(str, "("))
+                        ret = false ;
+                    parens = true ;
+                }
+
+                if (ret && !basic_operand_to_string(oper, oper->operand_.operator_.left_, str))
                     ret = false ;
 
                 if (ret) {
@@ -1187,8 +1209,13 @@ static bool basic_operand_to_string(basic_operand_t *oper, uint32_t str)
                 }
 
                 if (ret) {
-                    if (!basic_operand_to_string(oper->operand_.operator_.right_, str))
+                    if (!basic_operand_to_string(oper, oper->operand_.operator_.right_, str))
                         ret = false ;
+                }
+
+                if (parens) {
+                    if (!basic_str_add_str(str, ")"))
+                        ret = false ;   
                 }
             }
             break;
@@ -1291,8 +1318,8 @@ static void reduce(expr_ctxt_t *ctxt)
     basic_operand_t *op1 = pop_operator(ctxt) ;
     assert(op1->type_ == BASIC_OPERAND_TYPE_OPERATOR) ;
 
-    op1->operand_.operator_.left_ = pop_operand(ctxt) ;
     op1->operand_.operator_.right_ = pop_operand(ctxt) ;
+    op1->operand_.operator_.left_ = pop_operand(ctxt) ;
     push_operand(ctxt, op1);
 }
 
@@ -1928,7 +1955,7 @@ static basic_value_t *eval_node(basic_operand_t *op, int vcnt, char **names, bas
 
 #ifdef _PRINT_EVALS_
     uint32_t strh = basic_str_create() ;
-    basic_operand_to_string(op, strh);
+    basic_operand_to_string(NULL, op, strh);
     basic_str_add_str(strh, "=");
     value_to_string(strh, ret);
     const char *strval = basic_str_value(strh);
@@ -1955,7 +1982,7 @@ uint32_t basic_expr_to_string(uint32_t index)
     if (ret == BASIC_STR_INVALID)
         return BASIC_STR_INVALID;
 
-    if (!basic_operand_to_string(expr->top_, ret)) {
+    if (!basic_operand_to_string(NULL, expr->top_, ret)) {
         basic_str_destroy(ret);
         return BASIC_STR_INVALID ;
     }

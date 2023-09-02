@@ -12,6 +12,8 @@
 extern void basic_save(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn) ;
 extern void basic_load(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn) ;
 extern void basic_flist(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn) ;
+extern void basic_del(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn) ;
+extern void basic_rename(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn) ;
 
 basic_line_t *program = NULL ;
 static const char *clearscreen = "\x1b[2J\x1b[;H";
@@ -196,16 +198,21 @@ static bool letArrayToString(basic_line_t *line, uint32_t str)
     return true ;
 }
 
-static bool loadSaveToString(basic_line_t* line, uint32_t str)
+static bool exprToString(int cnt, basic_line_t* line, uint32_t str)
 {
-    uint32_t exprindex = getU32(line, 1);
-    uint32_t strh = basic_expr_to_string(exprindex);
-    if (!basic_str_add_handle(str, strh)) {
+    while (cnt-- > 0) {
+        uint32_t exprindex = getU32(line, 1);
+        uint32_t strh = basic_expr_to_string(exprindex);
+        if (!basic_str_add_handle(str, strh)) {
+            basic_str_destroy(strh);
+            return false;
+        }
         basic_str_destroy(strh);
-        return false;
+
+        if (!basic_str_add_str(str, " "))
+            return false ;
     }
 
-    basic_str_destroy(strh);
     return true;
 }
 
@@ -420,9 +427,15 @@ static bool oneLineToString(basic_line_t *line, uint32_t str)
 
         case BTOKEN_SAVE:
         case BTOKEN_LOAD:
-            if (!loadSaveToString(line, str))
+        case BTOKEN_DEL:
+            if (!exprToString(1, line, str))
                 return false;
             break ;
+
+        case BTOKEN_RENAME:
+            if (!exprToString(2, line, str))
+                return false;
+            break ;            
 
         case BTOKEN_DEF:
             if (!defToString(line, str))
@@ -1049,7 +1062,15 @@ static void exec_one_statement(basic_line_t *line, exec_context_t *current, exec
 
         case BTOKEN_FLIST:
             basic_flist(line, err, outfn) ;
-            break ;    
+            break ;
+
+        case BTOKEN_DEL:
+            basic_del(line, err,outfn) ;
+            break ;
+
+        case BTOKEN_RENAME:
+            basic_rename(line, err,outfn) ;
+            break ;            
 
         case BTOKEN_LET_SIMPLE:
             basic_let_simple(line, err, outfn) ;

@@ -14,6 +14,7 @@ extern basic_line_t *program ;
 extern uint32_t lineToString(basic_line_t *line) ;
 
 static char filename[64] ;
+static char filename2[64] ;
 
 void basic_save(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
@@ -157,4 +158,69 @@ void basic_flist(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 
     (*outfn)("\n", 1);
     f_closedir(&dp);
+}
+
+void basic_del(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+{
+    *err = BASIC_ERR_NONE ;
+    if (line->lineno_ != -1) {
+        *err = BASIC_ERR_NOT_ALLOWED ;
+        return ;
+    }
+
+    uint32_t expr = getU32(line, 1);
+    basic_value_t *value = basic_expr_eval(expr,  0, NULL, NULL, err) ;
+    if (value == NULL)
+        return ;
+
+    if (value->type_ != BASIC_VALUE_TYPE_STRING) {
+        *err = BASIC_ERR_TYPE_MISMATCH ;
+        return ;
+    }
+
+    strcpy(filename, "/") ;
+    strcat(filename, value->value.svalue_);
+
+    if (f_unlink(filename) != FR_OK) {
+        *err = BASIC_ERR_IO_ERROR ;
+    }
+}
+
+void basic_rename(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+{
+    *err = BASIC_ERR_NONE ;
+    if (line->lineno_ != -1) {
+        *err = BASIC_ERR_NOT_ALLOWED ;
+        return ;
+    }
+
+    uint32_t expr = getU32(line, 1);
+    basic_value_t *value = basic_expr_eval(expr,  0, NULL, NULL, err) ;
+    if (value == NULL)
+        return ;
+
+    if (value->type_ != BASIC_VALUE_TYPE_STRING) {
+        *err = BASIC_ERR_TYPE_MISMATCH ;
+        return ;
+    }
+
+    strcpy(filename, "/") ;
+    strcat(filename, value->value.svalue_);
+
+    expr = getU32(line, 5);
+    value = basic_expr_eval(expr,  0, NULL, NULL, err) ;
+    if (value == NULL)
+        return ;
+
+    if (value->type_ != BASIC_VALUE_TYPE_STRING) {
+        *err = BASIC_ERR_TYPE_MISMATCH ;
+        return ;
+    }
+
+    strcpy(filename2, "/") ;
+    strcat(filename2, value->value.svalue_);
+
+    if (f_rename(filename, filename2) != FR_OK) {
+        *err = BASIC_ERR_IO_ERROR ;
+    }
 }
