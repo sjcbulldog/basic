@@ -93,9 +93,10 @@ void filesystem_init_task(void *param)
     init_file_system(false) ;
 
     isDone = true ;
-    while (1) {
-        vTaskDelay(10000000) ;
+    while (true) {
+        vTaskDelay(10000) ;
     }
+    // vTaskDelete(NULL) ;
 }
 
 bool filesystem_init_done()

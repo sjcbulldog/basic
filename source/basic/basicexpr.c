@@ -2,6 +2,7 @@
 #include "basicexprint.h"
 #include "basiccfg.h"
 #include "basicstr.h"
+#include "basicproc.h"
 #include <ctype.h>
 #include <string.h>
 #include <stdlib.h>
@@ -1030,13 +1031,21 @@ static const char *parse_operand(expr_ctxt_t *ctxt, const char *line, basic_oper
         *operand = create_const_operand(value) ;
     }
     else if (isalpha((uint8_t)*line)) {
-        while (*line && (isalpha((uint8_t)*line) || isdigit((uint8_t)*line)) && bind < BASIC_PARSE_BUFFER_LENGTH) {
+        while (*line && (isalpha((uint8_t)*line) || isdigit((uint8_t)*line)) && !basic_is_keyword(line) && bind < BASIC_PARSE_BUFFER_LENGTH) {
             ctxt->parsebuffer[bind++] = toupper(*line++) ;
             if (bind > BASIC_MAX_VARIABLE_LENGTH) {
                 *err = BASIC_ERR_VARIABLE_TOO_LONG;
                 return NULL;
             }
         }
+        if (*line == '$') {
+            ctxt->parsebuffer[bind++] = toupper(*line++) ;
+            if (bind > BASIC_MAX_VARIABLE_LENGTH) {
+                *err = BASIC_ERR_VARIABLE_TOO_LONG;
+                return NULL;
+            }            
+        }
+
         ctxt->parsebuffer[bind] = '\0';
 
         function_table_t* fun = lookup_function(ctxt->parsebuffer);

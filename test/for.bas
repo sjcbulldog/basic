@@ -1,0 +1,3 @@
+10 FOR X = 1 TO 3
+20 PRINT "X is ";X
+30 NEXT X

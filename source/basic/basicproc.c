@@ -20,7 +20,7 @@
 
 static const char *prompt = "Basic06> ";
 
-static token_table_t tokens[] = 
+token_table_t tokens[] = 
 {
     { BTOKEN_RUN, "RUN" },
     { BTOKEN_CLS, "CLS" },
@@ -55,6 +55,17 @@ static token_table_t tokens[] =
 static char linebuf[256] ;
 static char other[256] ;
 static char msg[128];
+
+bool basic_is_keyword(const char *line)
+{
+    for(int i = 0 ; i < sizeof(tokens)/sizeof(tokens[0]) ; i++) {
+        int len = strlen(tokens[i].str_) ;
+        if (strncasecmp(line, tokens[i].str_, len) == 0) {
+            return true ;
+        }
+    }
+    return false ;
+}
 
 const char *basic_token_to_str(uint8_t token)
 {
@@ -417,6 +428,9 @@ static const char *parse_print(basic_line_t *bline, const char *line, basic_err_
     }
 
     while (1) {
+        if (*line == '\0' || *line == ':')
+            break ;
+            
         line = basic_expr_parse(line, 0, NULL, &exprindex, err) ;
         if (line == NULL) {
             return NULL ;
@@ -916,7 +930,7 @@ static const char* tokenize_one(const char* line, basic_line_t** bline, basic_er
 
 static basic_line_t *tokenize(const char *line, basic_err_t *err)
 {
-    basic_line_t *ret = NULL, *child, *last = NULL ;
+    basic_line_t *ret = NULL, *child = NULL, *last = NULL, *parsed = NULL ;
     bool first = true ;
     int lineno = -1 ;
 
@@ -943,6 +957,7 @@ static basic_line_t *tokenize(const char *line, basic_err_t *err)
 
             ret->lineno_ = lineno ;
             first = false ;
+            parsed = ret ;
         }
         else {
             line = tokenize_one(line, &child, err) ;
@@ -957,6 +972,7 @@ static basic_line_t *tokenize(const char *line, basic_err_t *err)
             }
 
             last = child ;
+            parsed = child ;
         }
 
         line = skipSpaces(line) ;
@@ -967,13 +983,14 @@ static basic_line_t *tokenize(const char *line, basic_err_t *err)
         // The form if an IF statement is IF expr THEN stmt1:stmt2:stmt3 ...
         // We want stmt1 to be the first child
         //
-        if (*line != ':' && ret->tokens_[0] != BTOKEN_IF) {
-            *err = BASIC_ERR_EXTRA_CHARS ;
-            return NULL ;
-        }
+        if (parsed->tokens_[0] != BTOKEN_IF) {
+            if (*line != ':') {
+                *err = BASIC_ERR_EXTRA_CHARS ;
+                return NULL ;
+            }
 
-        if (ret->tokens_[0] != BTOKEN_IF && ret->children_ == NULL)
             line++ ;
+        }
     }
 
     return ret ;
