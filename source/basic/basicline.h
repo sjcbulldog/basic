@@ -5,11 +5,13 @@
 // Token types
 //
 typedef enum btokens {
-    // Char tokens that are important
+    // Internal tokens that are important
     BTOKEN_COMMA,
     BTOKEN_SEMICOLON,
     BTOKEN_LET_ARRAY,
     BTOKEN_LET_SIMPLE,
+    BTOKEN_PROMPT,
+    BTOKEN_NO_PROMPT,
 
     // These below here are in the token table in basicproc.c
     BTOKEN_RUN,
@@ -37,6 +39,10 @@ typedef enum btokens {
     BTOKEN_DEF,
     BTOKEN_INPUT,
     BTOKEN_ON,
+    BTOKEN_END,
+    BTOKEN_STOP,
+    BTOKEN_TRON,
+    BTOKEN_TROFF
 } btoken_t ;
 
 typedef struct basic_line

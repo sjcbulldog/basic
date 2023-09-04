@@ -235,7 +235,7 @@ void network_service_task(void *param)
 
                     if (!isEmptyLine(rx_buffer_data))
                     {
-                        if (!basic_queue_line((const char *)rx_buffer_data, network_svc_send_data)) {
+                        if (!basic_task_queue_line((const char *)rx_buffer_data, network_svc_send_data)) {
                             // TODO - out of memory error
                         }
                     }

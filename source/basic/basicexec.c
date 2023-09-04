@@ -4,6 +4,9 @@
 #include "basicexpr.h"
 #include "basiccfg.h"
 #include "basicstr.h"
+#include "basictask.h"
+#include <FreeRTOS.h>
+#include <task.h>
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
@@ -22,6 +25,8 @@ static int space_count = 8 ;
 
 static for_stack_entry_t *for_stack = NULL ;
 static gosub_stack_entry_t *gosub_stack = NULL ;
+static uint8_t end_program = BTOKEN_RUN ;
+static bool trace = false ;
 
 static basic_line_t *find_line_by_number(uint32_t lineno)
 {
@@ -384,6 +389,74 @@ static bool ifToString(basic_line_t *line, uint32_t str)
     return true ;
 }
 
+static bool inputToString(basic_line_t *line, uint32_t str)
+{
+    uint32_t strh ;
+    int index = 1 ;
+    uint8_t token = getU32(line, index++) ;
+    bool first = true ;
+
+    if (token == BTOKEN_PROMPT) {
+        strh = getU32(line, index) ;
+        index += 4 ;
+
+        if (!basic_str_add_str(str, "\""))
+            return false ;
+
+        if (!basic_str_add_handle(str, strh))
+            return false;
+
+        if (!basic_str_add_str(str, "\";"))
+            return false ;            
+    }
+
+    while (index < line->count_) {
+        if (!first) {
+            if (!basic_str_add_str(str, ","))
+                return false ;            
+        }
+        first = false ;
+        strh = getU32(line, index) ;
+        index += 4 ;    
+
+        if (!basic_str_add_handle(str, strh))
+            return false;        
+    }
+
+    return true ;
+}
+
+static bool onToString(basic_line_t *line, uint32_t str)
+{
+    int index = 1 ;
+    uint32_t exprindex = getU32(line, index) ;
+    index+= 4 ;
+
+    uint32_t strh = basic_expr_to_string(exprindex) ;
+    if (!basic_str_add_handle(str, strh))
+    {
+        basic_str_destroy(strh) ;
+        return false ;
+    }
+    basic_str_destroy(strh);
+
+    if (!basic_str_add_str(str, basic_token_to_str(line->tokens_[index++])))
+        return false ;
+
+    while (index < line->count_) {
+        if (index != 6) {
+            if (!basic_str_add_str(str, ","))
+                return false ;              
+        }
+        uint32_t lineno = getU32(line, index) ;
+        index += 4 ;
+        if (!basic_str_add_int(str, (int)lineno))
+            return false ;
+    }
+
+    return true;
+}
+
 static bool oneLineToString(basic_line_t *line, uint32_t str)
 {
     if (!basic_str_add_str(str, basic_token_to_str(line->tokens_[0]))) {
@@ -460,12 +533,27 @@ static bool oneLineToString(basic_line_t *line, uint32_t str)
             break ;
 
         case BTOKEN_RETURN:
+        case BTOKEN_END:
+        case BTOKEN_STOP:
+        case BTOKEN_TRON:
+        case BTOKEN_TROFF:
+        case BTOKEN_CLS:
             break ;
 
         case BTOKEN_IF:
             if (!ifToString(line, str))
                 return false ;
             break ;
+
+        case BTOKEN_ON:
+            if (!onToString(line, str))
+                return false ;
+            break ;
+
+        case BTOKEN_INPUT:
+            if (!inputToString(line, str))
+                return false ;
+            break;
 
         default:    // No additional args
             assert(false);
@@ -575,15 +663,13 @@ void basic_cls(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
     *err = BASIC_ERR_NONE ;
 
     int len = (int)strlen(clearscreen) ;
-    res = (*outfn)(clearscreen, len) ;
-    if (res != CY_RSLT_SUCCESS) {
-        *err = BASIC_ERR_NETWORK_ERROR ;
-    }
+    (*outfn)(clearscreen, len) ;
 }
-
 
 void basic_run(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
+    static const char *StoppedMessage = "Program Stopped" ;
+
     if (line->lineno_ != -1) {
         *err = BASIC_ERR_NOT_ALLOWED ;
         return ;    
@@ -595,6 +681,12 @@ void basic_run(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
     context.next_ = NULL ;
 
     *err = basic_exec_line(&context, outfn) ;
+    if (end_program == BTOKEN_STOP) {
+        // TODO: Add line number to this message
+        (outfn)(StoppedMessage, strlen(StoppedMessage)) ;
+    }
+
+    end_program = BTOKEN_RUN ;
 }
 
 void basic_list(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
@@ -688,9 +780,9 @@ void basic_print(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
         }
         else {
             if ((value->value.nvalue_ - (int)value->value.nvalue_) < 1e-6)
-                sprintf(fmtbuf, "%d", (int)value->value.nvalue_);
+                sprintf(fmtbuf, " %d ", (int)value->value.nvalue_);
             else
-                sprintf(fmtbuf, "%f", value->value.nvalue_);
+                sprintf(fmtbuf, " %f ", value->value.nvalue_);
 
             str = fmtbuf;
         }
@@ -716,6 +808,181 @@ void basic_print(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
         (*outfn)("\n", 1) ;
 
     return ;
+}
+ 
+void basic_on(basic_line_t *line, exec_context_t *current, exec_context_t *nextline, basic_err_t *err, basic_out_fn_t outfn)
+{
+    uint8_t token ;
+    int index = 1 ;
+
+    uint32_t exprindex = getU32(line, index) ;
+    index += 4 ;
+
+    token = line->tokens_[index++] ;
+    assert(token == BTOKEN_GOTO || token == BTOKEN_GOSUB);    
+
+    basic_value_t *value = basic_expr_eval(exprindex, 0, NULL, NULL, err) ;
+    if (value == NULL)
+        return ;
+
+    if (value->type_ != BASIC_VALUE_TYPE_NUMBER) {
+        *err = BASIC_ERR_TYPE_MISMATCH ;
+        return ;
+    }
+
+    int v = (int)(value->value.nvalue_) - 1;
+    int lineidx = index + v * 4 ;
+    if (lineidx + 4 <= line->count_) {
+        int lineno = getU32(line, lineidx);
+        basic_line_t *nline = find_line_by_number(lineno) ;
+        if (nline == NULL) {
+            *err = BASIC_ERR_INVALID_LINE_NUMBER ;
+            return ;
+        }
+
+        if (token == BTOKEN_GOTO) {
+            nextline->line_ = nline ;
+            nextline->child_ = NULL ;
+        }
+        else {
+            gosub_stack_entry_t *entry = (gosub_stack_entry_t *)malloc(sizeof(gosub_stack_entry_t)) ;
+            if (entry == NULL) {
+                *err = BASIC_ERR_OUT_OF_MEMORY ;
+                return ;
+            }
+
+            entry->context_.line_ = current->line_ ;
+            entry->context_.child_ = current->child_ ;
+            forwardOneStmt(&entry->context_);
+
+            entry->next_ = gosub_stack ;
+            gosub_stack = entry ;
+
+            nextline->line_ = nline ;    
+            nextline->child_ = NULL ;
+            *err = BASIC_ERR_NONE ;
+        }
+    }
+}
+
+void basic_input(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+{
+    static const char *InvalidNumber = "invalid number entered, try again" ;
+    static const char *NotEnoughInput = "not enough input values supplied" ;
+
+    const char *prompt = NULL ;
+    int index = 1 ;
+    uint32_t v, varidx ;
+
+    uint8_t token = line->tokens_[index++];
+    if (token == BTOKEN_PROMPT) {
+        v = getU32(line, index) ;
+        index += 4 ;
+        prompt = basic_str_value(v) ;
+    }
+
+    int saveindex = index ;
+    bool isvalid = false ;
+
+    //
+    // Redirect input from the basic parser to here
+    //
+    basic_task_store_input(true) ;
+
+    while (!isvalid) {
+        //
+        // Return index to the beginning of the variables
+        //
+        index = saveindex ;
+
+        //
+        // For this pass, assume we are valid until we see a reason to be invalid
+        //
+        isvalid = true ;
+
+        //
+        // Send the prompt to the user
+        //
+        if (prompt) {
+            (*outfn)(prompt, strlen(prompt)) ;
+            (*outfn)(" ", 1);            
+        }    
+
+        //
+        // Get a line of text from the user
+        //
+        const char *text = basic_task_get_line() ;
+
+        //
+        // Parse the line of text
+        //
+        while (isvalid && index < line->count_) {
+            //
+            // Get the variable name, handle, and type
+            //
+            v = getU32(line, index) ;
+            index += 4 ;
+
+            const char *varname = basic_str_value(v) ;
+            if (!basic_var_get(varname, &varidx, err))
+                return ;
+            bool str = basic_var_is_string(varidx) ;
+
+            if (str) 
+            {
+                //
+                // If the input variable is a string, all input is valid, store the input
+                // and return.
+                //
+                basic_var_set_value_string(varidx, text, err) ;
+            }
+            else
+            {
+                double num ;
+                
+                text = skipSpaces(text) ;
+                if (*text == '\0') {
+                    //
+                    // Not enough input
+                    //
+                    (outfn)(NotEnoughInput, strlen(NotEnoughInput)) ;
+                    (outfn)("\n", 1) ;
+                    isvalid = false ;
+                    continue ;
+                }
+
+                text = basic_expr_parse_number(text, &num, err) ;
+                if (text == NULL) 
+                {
+                    //
+                    // Tell the user the output is not valid and stay in the
+                    // input loop
+                    //
+                    (outfn)(InvalidNumber, strlen(InvalidNumber)) ;
+                    (outfn)("\n", 1) ;
+                    isvalid = false ;
+                    continue ;
+                }
+
+                //
+                // Valid number set the variables value and move to the next one
+                //
+                basic_var_set_value_number(varidx, num, err) ;
+
+                if (index == line->count_)
+                    break; 
+
+                text = skipSpaces(text) ;
+                if (*text != ',') {
+                    *err = BASIC_ERR_EXPECTED_COMMA ;
+                    isvalid = false ;
+                    continue ;
+                }
+            }
+        }
+    }
+
+    basic_task_store_input(false) ;
 }
 
 void basic_rem(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
@@ -857,13 +1124,7 @@ void basic_then(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, 
     return ;
 }
 
-void basic_else(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, basic_out_fn_t outfn)
-{
-    *err = BASIC_ERR_NONE ;    
-    return ;
-}
-
-void basic_for(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, basic_out_fn_t outfn)
+void basic_for(basic_line_t *line, exec_context_t *current, exec_context_t *nextline, basic_err_t *err, basic_out_fn_t outfn)
 {
     uint32_t varindex, expridx ;
 
@@ -897,12 +1158,9 @@ void basic_for(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, b
         c->stepidx_ = 0xffffffff ;
     }
 
-    c->context_.line_ = nextline->line_ ;
-    if (line != nextline->line_)
-        c->context_.child_ = line ;
-    else
-        c->context_.child_ = NULL ;
-
+    c->context_.line_ = current->line_ ;
+    c->context_.child_ = current->child_ ;
+    forwardOneStmt(&c->context_);
 
     c->next_ = for_stack ;
     for_stack = c ;
@@ -911,7 +1169,7 @@ void basic_for(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, b
     return ;
 }
 
-void basic_next(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, basic_out_fn_t outfn)
+void basic_next(basic_line_t *line, exec_context_t *current, exec_context_t *nextline, basic_err_t *err, basic_out_fn_t outfn)
 {
     double step = 1.0 ;
 
@@ -966,8 +1224,6 @@ void basic_next(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, 
         for_stack_entry_t *todel = for_stack ;
         for_stack = for_stack->next_ ;
         free(todel) ;
-
-
     }
     else {
         //
@@ -978,7 +1234,6 @@ void basic_next(basic_line_t *line, exec_context_t *nextline, basic_err_t *err, 
 
         nextline->line_ = for_stack->context_.line_ ;
         nextline->child_ = for_stack->context_.child_ ;
-        forwardOneStmt(nextline) ;
     }
 }
 
@@ -1041,8 +1296,47 @@ void basic_return(basic_line_t *line, exec_context_t *nextline, basic_err_t *err
     return ;
 }
 
+static int stmtNumber(basic_line_t *parent, basic_line_t *child)
+{
+    int cnt = 0 ;
+
+    if (parent == child) 
+    {
+        cnt = 0 ;
+    }
+    else 
+    {
+        cnt = 1 ;
+        basic_line_t *line = parent->children_ ;
+        while (line && line != child) {
+            cnt++ ;
+            line = line->next_ ;
+        }
+
+        if (line == NULL)
+            cnt = -1 ;
+    }
+
+    return cnt ;
+}
+
+static char trbuf[64] ;
 static void exec_one_statement(basic_line_t *line, exec_context_t *current, exec_context_t *nextline, basic_err_t *err, basic_out_fn_t outfn)
 {
+    if (trace && current->line_->lineno_ != -1) {
+        int stmt = stmtNumber(current->line_, line) ;
+        if (stmt == 0) 
+        {
+            sprintf(trbuf, "[%d]", current->line_->lineno_);
+        }
+        else
+        {
+            sprintf(trbuf, "[%d:%d]", current->line_->lineno_, stmt) ;
+        }
+
+        (outfn)(trbuf, strlen(trbuf)) ;
+    }
+
     switch(line->tokens_[0]) {
         case BTOKEN_CLS:
             basic_cls(line, err, outfn) ;
@@ -1096,12 +1390,16 @@ static void exec_one_statement(basic_line_t *line, exec_context_t *current, exec
             basic_print(line, err, outfn) ;
             break;
 
+        case BTOKEN_INPUT:
+            basic_input(line, err, outfn) ;
+            break ;
+
         case BTOKEN_THEN:
             basic_then(line, nextline, err, outfn) ;
             break ;
 
         case BTOKEN_FOR:
-            basic_for(line, current, err, outfn) ;
+            basic_for(line, current, nextline, err, outfn) ;
             break ;
 
         case BTOKEN_GOTO:
@@ -1117,7 +1415,7 @@ static void exec_one_statement(basic_line_t *line, exec_context_t *current, exec
             break ;
 
         case BTOKEN_NEXT:
-            basic_next(line, nextline, err, outfn) ;
+            basic_next(line, current, nextline, err, outfn) ;
             break ;
 
         case BTOKEN_IF:
@@ -1135,6 +1433,26 @@ static void exec_one_statement(basic_line_t *line, exec_context_t *current, exec
         case BTOKEN_LOAD:
             basic_load(line, err, outfn) ;
             break ;     
+
+        case BTOKEN_ON:
+            basic_on(line, current, nextline, err, outfn) ;
+            break ;
+
+        case BTOKEN_END:
+            end_program = BTOKEN_END ;
+            break; 
+
+        case BTOKEN_TRON:
+            trace = true ;
+            break ;
+
+        case BTOKEN_TROFF:
+            trace = false ;
+            break ;
+
+        case BTOKEN_STOP:
+            end_program = BTOKEN_STOP ;
+            break ;            
 
         case BTOKEN_DEF:
             *err = BASIC_ERR_NONE ;
@@ -1162,6 +1480,10 @@ int basic_exec_line(exec_context_t *context, basic_out_fn_t outfn)
         else
             toexec = context->line_ ;
 
+        if (context->line_->lineno_ == 1600) {
+            printf("\n") ;
+        }
+
         //
         // Execute one statement exactly.  If the statement wants to redirect
         // control flow, it must return a value in the nextone context.
@@ -1177,50 +1499,15 @@ int basic_exec_line(exec_context_t *context, basic_out_fn_t outfn)
             break ;
         }
 
-        if (nextone.line_ != NULL) {
+        if (end_program != BTOKEN_RUN)
+            return BASIC_ERR_NONE ;
+
+        if (nextone.line_ != NULL) 
+        {
             *context = nextone ;
         }
         else {
-            if (context->child_ != NULL) {
-                //
-                // We are executing a child statement
-                //
-                if (context->child_->next_ == NULL) 
-                {
-                    //
-                    // This is the last child in the list of children, move to the
-                    // next parent.
-                    //
-                    context->line_ = context->line_->next_ ;
-                    context->child_ = NULL ;
-                }
-                else
-                {
-                    //
-                    // There are further children
-                    //
-                    context->child_ = context->child_->next_ ;
-                }
-            }
-            else {
-                //
-                // We are executing a parent statement
-                //
-                if (context->line_->children_ == NULL) {
-                    //
-                    // There are not children, go to the next parent
-                    //
-                    context->line_ = context->line_->next_ ;
-                    context->child_ = NULL ;
-                }
-                else 
-                {
-                    //
-                    // There are children, run them
-                    //
-                    context->child_ = context->line_->children_ ;
-                }
-            }
+            forwardOneStmt(context) ;
         }
     }
 

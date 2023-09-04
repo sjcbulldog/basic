@@ -29,10 +29,13 @@ static inline const char *skipSpaces(const char *line)
     return line ;
 }
 
+extern basic_value_t *basic_create_string_value(const char *v) ;
+
 extern bool basic_var_get(const char *name, uint32_t *index, basic_err_t *err) ;
 extern bool basic_var_destroy(uint32_t index) ;
 extern bool basic_var_set_value(uint32_t index, basic_value_t *value, basic_err_t *err) ;
 extern bool basic_var_set_value_number(uint32_t index, double value, basic_err_t *err) ;
+extern bool basic_var_set_value_string(uint32_t index, const char *value, basic_err_t* err) ;
 extern bool basic_var_set_array_value(uint32_t index, basic_value_t *value, uint32_t *dims, basic_err_t *err) ;
 extern basic_value_t *basic_var_get_value(uint32_t index) ;
 extern basic_value_t *basic_var_get_array_value(uint32_t index, uint32_t *dims, basic_err_t *err) ;
@@ -41,8 +44,11 @@ extern bool basic_var_add_dims(uint32_t index, uint32_t dimcnt, uint32_t *dims, 
 extern int basic_var_get_dim_count(uint32_t index, basic_err_t *err) ;
 extern bool basic_var_get_dims(uint32_t index, uint32_t *dimcnt, uint32_t *dims, basic_err_t* err);
 extern void basic_var_clear_all() ;
+extern bool basic_var_is_string(uint32_t index) ;
 
 extern const char *basic_expr_parse_int(const char *line, int *value, basic_err_t *err) ;
+extern const char *basic_expr_parse_number(const char *line, double *value, basic_err_t *err) ;
+extern const char *basic_expr_parse_str(const char *line, uint32_t *value, basic_err_t *err) ;
 extern const char* basic_expr_parse_dims_const(const char* line, uint32_t* dimcnt, uint32_t* dims, basic_err_t* err);
 extern const char* basic_expr_parse_dims_expr(const char* line, int* dimcnt, uint32_t *dims, basic_err_t* err);
 

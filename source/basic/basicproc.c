@@ -47,6 +47,10 @@ token_table_t tokens[] =
     { BTOKEN_DEF, "DEF"},
     { BTOKEN_INPUT, "INPUT"},
     { BTOKEN_ON, "ON"},
+    { BTOKEN_END, "END"},
+    { BTOKEN_STOP, "STOP"},
+    { BTOKEN_TRON, "TRON"},
+    { BTOKEN_TROFF, "TROFF"},
 
     { BTOKEN_LET_SIMPLE, "LET"},
     { BTOKEN_LET_ARRAY, "LET"},
@@ -160,6 +164,24 @@ void basic_destroy_line(basic_line_t *line)
             }
             break; 
 
+            case BTOKEN_INPUT:
+            {
+                uint32_t strh ;
+                int index = 2 ;
+
+                while (index < line->count_) {
+                    strh = getU32(line, index) ;
+                    index += 4 ;
+
+                    basic_str_destroy(strh) ;
+                }
+            }
+            break ;
+
+            case BTOKEN_ON:
+                basic_expr_destroy(getU32(line, 2));
+                break ;
+
             case BTOKEN_REM:
             case BTOKEN_LIST:
             case BTOKEN_RUN: 
@@ -169,6 +191,10 @@ void basic_destroy_line(basic_line_t *line)
             case BTOKEN_GOTO:
             case BTOKEN_GOSUB:
             case BTOKEN_RETURN:
+            case BTOKEN_END:
+            case BTOKEN_STOP:
+            case BTOKEN_TRON:
+            case BTOKEN_TROFF:
                 break;
 
             case BTOKEN_DEL:
@@ -428,6 +454,7 @@ static const char *parse_print(basic_line_t *bline, const char *line, basic_err_
     }
 
     while (1) {
+        line = skipSpaces(line) ;
         if (*line == '\0' || *line == ':')
             break ;
             
@@ -461,6 +488,135 @@ static const char *parse_print(basic_line_t *bline, const char *line, basic_err_
         }
         else {
             *err = BASIC_ERR_EXTRA_CHARS ;
+            return NULL ;
+        }
+    }
+
+    return line ;
+}
+
+static const char *parse_input(basic_line_t *bline, const char *line, basic_err_t *err)
+{
+    int index = 1 ;
+    int cntstr = 0 ;
+    uint32_t v ;
+
+    line = skipSpaces(line) ;
+    if (*line == '"') {
+
+        // This input has a prompt
+        line = basic_expr_parse_str(line, &v, err) ;
+        if (line == NULL)
+            return NULL ;
+
+        if (!add_token(bline, BTOKEN_PROMPT)){
+            *err = BASIC_ERR_OUT_OF_MEMORY ;
+            return NULL ;
+        }            
+
+        if (!add_uint32(bline, v)) {
+            *err = BASIC_ERR_OUT_OF_MEMORY ;
+            return NULL ;
+        }
+        index += 4 ;
+
+        line = skipSpaces(line) ;
+
+        if (*line != ';') {
+            *err = BASIC_ERR_EXPECTED_SEMICOLON ;
+            return NULL ;
+        }
+        line++ ;
+    }
+    else {
+        if (!add_token(bline, BTOKEN_NO_PROMPT)){
+            *err = BASIC_ERR_OUT_OF_MEMORY ;
+            return NULL ;
+        }
+    }
+
+    while (true) {
+        line = parse_varname(line, &v, err) ;
+        if (line == NULL)
+            return NULL ;
+
+        const char *varname = basic_str_value(v) ;
+        if (varname[strlen(varname) - 1] == '$')
+            cntstr++ ;
+
+        if (!add_uint32(bline, v)) {
+            *err = BASIC_ERR_OUT_OF_MEMORY ;
+            return NULL ;
+        }   
+
+        line = skipSpaces(line) ;
+
+        if (*line == '\0' || *line == ':') {
+            break ;
+        }
+
+        if (*line != ',') {
+            *err = BASIC_ERR_EXPECTED_COMMA ;
+            return NULL ;
+        }
+        line++ ;
+    }
+
+    if (cntstr > 1) {
+        *err = BASIC_ERR_TOO_MANY_STRING_VARS ;
+        return NULL ;
+    }
+
+    return line ;     
+}
+
+static const char *parse_on(basic_line_t *bline, const char *line, basic_err_t *err)
+{
+    uint32_t exprindex ;
+    uint8_t token ;
+
+    line = basic_expr_parse(line, 0, NULL, &exprindex, err) ;
+    if (line == NULL)
+        return NULL ;
+
+    if (!add_uint32(bline, exprindex)) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+        return NULL ;
+    }
+
+    line = parse_keyword(line, &token, err) ;
+    if (line == NULL)
+        return NULL ;
+
+    if (token != BTOKEN_GOTO && token != BTOKEN_GOSUB) {
+        *err = BASIC_ERR_EXPECTED_GOTO_GOSUB ;
+        return NULL ;
+    }
+
+    if (!add_token(bline, token)) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+        return NULL ;
+    }
+
+    int lineno ;
+    while (true) {
+        line = basic_expr_parse_int(line, &lineno, err) ;
+        if (line == NULL)
+            return NULL ;
+
+        if (!add_uint32(bline, lineno)) {
+            *err = BASIC_ERR_OUT_OF_MEMORY ;
+            return NULL ;
+        }
+
+        line = skipSpaces(line) ;
+        if (*line == '\0' || *line == ':')
+            break ;
+        else if (*line == ',') {
+            line = skipSpaces(line + 1) ;
+        }
+        else {
+            *err = BASIC_ERR_EXPECTED_COMMA ;
             return NULL ;
         }
     }
@@ -863,8 +1019,9 @@ static const char* tokenize_one(const char* line, basic_line_t** bline, basic_er
         *err = BASIC_ERR_INVALID_TOKEN;
         ret = NULL;
     }
-    else if (token == BTOKEN_CLEAR || token == BTOKEN_CLS || token == BTOKEN_RUN || 
-             token == BTOKEN_THEN || token == BTOKEN_FLIST || token == BTOKEN_RETURN)
+    else if (token == BTOKEN_CLEAR || token == BTOKEN_CLS || token == BTOKEN_RUN || token == BTOKEN_END ||
+             token == BTOKEN_THEN || token == BTOKEN_FLIST || token == BTOKEN_RETURN || 
+             token == BTOKEN_STOP || token == BTOKEN_TRON || token == BTOKEN_TROFF)
     {
         line = skipSpaces(line);
         if (*line != '\0' && *line != ':') {
@@ -894,6 +1051,12 @@ static const char* tokenize_one(const char* line, basic_line_t** bline, basic_er
     }
     else if (token == BTOKEN_PRINT) {
         line = parse_print(ret, line, err);
+    }
+    else if (token == BTOKEN_INPUT) {
+        line = parse_input(ret, line, err) ;
+    }
+    else if (token == BTOKEN_ON) {
+        line = parse_on(ret, line, err) ;        
     }
     else if (token == BTOKEN_DEF) {
         line = parse_def(ret, line, err);
@@ -995,7 +1158,6 @@ static basic_line_t *tokenize(const char *line, basic_err_t *err)
 
     return ret ;
 }
-
 
 bool basic_line_proc(const char *line, basic_out_fn_t outfn)
 {

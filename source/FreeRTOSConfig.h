@@ -158,7 +158,7 @@ file portable\TOOLCHAIN_IAR\COMPONENT_CM4\portasm.s in PendSV_Handler: routine
 to exclude the API function. */
 #define INCLUDE_vTaskPrioritySet                1
 #define INCLUDE_uxTaskPriorityGet               1
-#define INCLUDE_vTaskDelete                     1
+#define INCLUDE_vTaskDelete                     0
 #define INCLUDE_vTaskSuspend                    1
 #define INCLUDE_xResumeFromISR                  1
 #define INCLUDE_vTaskDelayUntil                 1

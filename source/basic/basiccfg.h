@@ -18,7 +18,7 @@
 // This should be bigger than BASIC_MAX_NUMERIC_CONSTANT_LENGTH 
 // and BASIC_MAX_VARIABLE_LENGTH.  This also sets the maximum length
 // of a string constant.
-#define BASIC_PARSE_BUFFER_LENGTH				(128)
+#define BASIC_PARSE_BUFFER_LENGTH				(256)
 
 // The stack depth of the expression parser 
 #define BASIC_MAX_EXPR_DEPTH					(48)

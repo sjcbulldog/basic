@@ -42,10 +42,10 @@ operator_table_t operators[] =
     { BASIC_OPERATOR_POWER, "^", 2 },
     { BASIC_OPERATOR_NOT_EQUAL, "<>", 5},
     { BASIC_OPERATOR_EQUAL, "=", 5 },
+    { BASIC_OPERATOR_GREATER_EQ, ">=", 5 },
     { BASIC_OPERATOR_GREATER, ">", 5 },
-    { BASIC_OPERATOR_GREATER_EQ, ">", 5 },
-    { BASIC_OPERATOR_LESS, "<", 5 },
     { BASIC_OPERATOR_LESS_EQ, "<=", 5 },
+    { BASIC_OPERATOR_LESS, "<", 5 },
     { BASIC_OPERATOR_OR, "OR", 6 },
     { BASIC_OPERATOR_AND, "AND", 6 },
 } ;
@@ -54,6 +54,9 @@ static basic_value_t* func_int(int count, basic_value_t** args, basic_err_t *err
 static basic_value_t* func_rnd(int count, basic_value_t** args, basic_err_t *err);
 static basic_value_t *func_mem(int count, basic_value_t** args, basic_err_t *err) ;
 static basic_value_t *func_sqrt(int count, basic_value_t** args, basic_err_t *err) ;
+static basic_value_t *func_left(int count, basic_value_t**args, basic_err_t *err) ;
+static basic_value_t *func_right(int count, basic_value_t**args, basic_err_t *err) ;
+static basic_value_t *func_mid(int count, basic_value_t**args, basic_err_t *err) ;
 
 function_table_t functions[] =
 {
@@ -61,6 +64,9 @@ function_table_t functions[] =
     { 1, "RND", func_rnd },
     { 1, "MEM", func_mem },
     { 1, "SQRT", func_sqrt},
+    { 2, "LEFT$", func_left},
+    { 2, "RIGHT$", func_right},
+    { 3, "MID$", func_mid},
 };
 
 const char* basic_expr_parse_dims_const(const char* line, uint32_t* dimcnt, uint32_t* dims, basic_err_t* err)
@@ -194,29 +200,167 @@ const char* basic_expr_parse_dims_operands(const char* line, uint32_t* dimcnt, b
     return line;
 }
 
-const char *basic_expr_parse_int(const char *line, int *value, basic_err_t *err)
+static char string_parse_buffer[BASIC_PARSE_BUFFER_LENGTH] ;
+const char *basic_expr_parse_str(const char *line, uint32_t *value, basic_err_t *err)
+{
+    int bind = 0 ;
+
+    if (*line != '"') {
+        *err = BASIC_ERR_EXPECTED_QUOTE ;
+        return NULL ;
+    }
+
+    line++ ;
+    while (*line && *line != '"' && bind < sizeof(string_parse_buffer)) {
+        string_parse_buffer[bind++] = *line++ ;
+        if (bind == BASIC_PARSE_BUFFER_LENGTH) {
+            *err = BASIC_ERR_STRING_TOO_LONG;
+            return NULL;
+        }
+    }
+
+    if (*line != '"') {
+        *err = BASIC_ERR_UNTERMINATED_STRING ;
+        return NULL ;
+    }
+    line++ ;
+
+    string_parse_buffer[bind] = '\0' ;
+
+    *value = basic_str_create_str(string_parse_buffer) ;
+    if (*value == BASIC_STR_INVALID) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+        return NULL ;
+    }
+
+    return line ;
+}
+
+const char *basic_expr_parse_number(const char *line, double *value, basic_err_t *err)
 {
     *err = BASIC_ERR_NONE ;
     static char parsebuffer[32];
 
     line = skipSpaces(line) ;
-    if (!isdigit((int)*line) && *line != '+' && *line != '-') {
+
+    if (!isdigit((uint8_t)*line) && *line != '-' && *line != '+' && *line != '.')
+    {
+        *err = BASIC_ERR_BAD_NUMBER_VALUE ;
+        return NULL ;
+    }
+
+    int index = 0 ;
+    bool odd = false ;
+    bool digit = false;
+    while ((*line == '-' || *line == '+') && index < sizeof(parsebuffer)) 
+    {
+        if (*line == '-') 
+        {
+            odd = !odd ;
+        }
+        line++ ;
+    }
+
+    while (isdigit((int)*line)) 
+    {
+        digit = true ;
+        parsebuffer[index++] = *line++ ;
+
+        if (index == sizeof(parsebuffer)) 
+        {
+            *err = BASIC_ERR_NUMBER_TOO_LONG ;
+            return NULL ;
+        }        
+    }
+
+    if (*line == '.') 
+    {
+        parsebuffer[index++] = *line++ ;
+        if (index == sizeof(parsebuffer)) 
+        {
+            *err = BASIC_ERR_NUMBER_TOO_LONG ;
+            return NULL ;
+        }
+    }
+
+    while (isdigit((int)*line)) 
+    {
+        digit = true ;
+        parsebuffer[index++] = *line++ ;
+
+        if (index == sizeof(parsebuffer)) 
+        {
+            *err = BASIC_ERR_NUMBER_TOO_LONG ;
+            return NULL ;
+        }        
+    }
+
+    if (*line == 'e' || *line == 'E') 
+    {
+        parsebuffer[index++] = *line++ ;
+        if (index == sizeof(parsebuffer)) 
+        {
+            *err = BASIC_ERR_NUMBER_TOO_LONG ;
+            return NULL ;      
+        }  
+    }
+
+    while (isdigit((int)*line)) 
+    {
+        digit = true ;
+        parsebuffer[index++] = *line++ ;
+
+        if (index == sizeof(parsebuffer)) 
+        {
+            *err = BASIC_ERR_NUMBER_TOO_LONG ;
+            return NULL ;
+        }        
+    }    
+
+    if (!digit) {
+        *err = BASIC_ERR_BAD_INTEGER_VALUE ;
+        return NULL ;
+    }    
+
+    parsebuffer[index] = '\0' ;
+    *value = atof(parsebuffer) ;
+    return line ;    
+}
+
+const char *basic_expr_parse_int(const char *line, int *value, basic_err_t *err)
+{
+    *err = BASIC_ERR_NONE ;
+    static char parsebuffer[BASIC_MAX_NUMERIC_CONSTANT_LENGTH];
+
+    line = skipSpaces(line) ;
+    if (!isdigit((int)*line) && *line != '+' && *line != '-') 
+    {
         *err = BASIC_ERR_BAD_INTEGER_VALUE ;
         return NULL ;
     }
 
-    bool digit = false ;
     int index = 0 ;
-    if (*line == '-') {
-        parsebuffer[index++] = *line++ ;
-    }
-    else if (*line == '+') {
+    bool odd = false ;
+    bool digit = false;
+    while ((*line == '-' || *line == '+') && index < sizeof(parsebuffer)) {
+        if (*line == '-') {
+            odd = !odd ;
+        }
         line++ ;
+    }
+
+    if (odd) {
+        parsebuffer[index++] = '-' ;
     }
 
     while (isdigit((int)*line)) {
         digit = true ;
         parsebuffer[index++] = *line++ ;
+
+        if (index == sizeof(parsebuffer)) {
+            *err = BASIC_ERR_NUMBER_TOO_LONG ;
+            return NULL ;
+        }
     }
 
     if (!digit) {
@@ -251,7 +395,7 @@ static basic_value_t *create_number_value(double v)
     return ret;
 }
 
-static basic_value_t *create_string_value(const char *v)
+basic_value_t *basic_create_string_value(const char *v)
 {
     if (v == NULL) {
         v = "" ;
@@ -424,6 +568,17 @@ bool basic_var_set_value_number(uint32_t index, double value, basic_err_t* err)
     return basic_var_set_value(index, nval, err) ;
 }
 
+bool basic_var_set_value_string(uint32_t index, const char *value, basic_err_t* err)
+{
+    basic_value_t *nval = basic_create_string_value(value) ;
+    if (nval == NULL) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+        return false ;
+    }
+
+    return basic_var_set_value(index, nval, err) ;
+}
+
 basic_value_t *basic_var_get_value(uint32_t index)
 {
     basic_var_t* var = get_var_from_index(index);
@@ -503,7 +658,7 @@ basic_value_t *basic_var_get_array_value(uint32_t index, uint32_t *dims, basic_e
     }
 
     if (var->sarray_ != NULL) {
-        ret = create_string_value(var->sarray_[ain]);
+        ret = basic_create_string_value(var->sarray_[ain]);
     }
     else {
         ret = create_number_value(var->darray_[ain]);
@@ -565,6 +720,15 @@ bool basic_var_set_array_value(uint32_t index, basic_value_t *value, uint32_t *d
 static bool isString(basic_var_t *var)
 {
     return var->name_[strlen(var->name_) - 1] == '$' ;
+}
+
+bool basic_var_is_string(uint32_t index)
+{
+    basic_var_t *var = get_var_from_index(index) ;
+    if (var == NULL)
+        return false ;
+
+    return isString(var) ;
 }
 
 bool basic_var_add_dims(uint32_t index, uint32_t dimcnt, uint32_t *dims, basic_err_t *err)
@@ -905,6 +1069,150 @@ static basic_value_t* func_sqrt(int count, basic_value_t** args, basic_err_t *er
     return create_number_value(sqrt(v->value.nvalue_)) ;
 }
 
+static basic_value_t* func_left(int count, basic_value_t** args, basic_err_t *err)
+{
+    if (count != 2) {
+        *err = BASIC_ERR_BAD_ARG_COUNT;
+        return NULL;
+    }
+
+    basic_value_t* str = args[0];
+    if (str->type_ != BASIC_VALUE_TYPE_STRING) {
+        *err = BASIC_ERR_TYPE_MISMATCH;
+        return NULL;
+    }
+
+    basic_value_t* len = args[1] ;
+    if (len->type_ != BASIC_VALUE_TYPE_NUMBER) {
+        *err = BASIC_ERR_TYPE_MISMATCH;
+        return NULL;
+    }
+
+    int nlen = len->value.nvalue_ ;
+    char *strv = (char *)malloc(nlen + 1) ;
+    if (strv == NULL) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+        return NULL ;
+    }
+
+    strncpy(strv, str->value.svalue_, nlen);
+    strv[nlen] = '\0' ;
+
+    basic_value_t *ret = basic_create_string_value(strv) ;
+    free(strv) ;
+
+    if (ret == NULL)
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+
+    return ret ;
+}
+
+static basic_value_t* func_right(int count, basic_value_t** args, basic_err_t *err)
+{
+    if (count != 2) {
+        *err = BASIC_ERR_BAD_ARG_COUNT;
+        return NULL;
+    }
+
+    basic_value_t* str = args[0];
+    if (str->type_ != BASIC_VALUE_TYPE_STRING) {
+        *err = BASIC_ERR_TYPE_MISMATCH;
+        return NULL;
+    }
+
+    basic_value_t* len = args[1] ;
+    if (len->type_ != BASIC_VALUE_TYPE_NUMBER) {
+        *err = BASIC_ERR_TYPE_MISMATCH;
+        return NULL;
+    }
+
+    int nlen = len->value.nvalue_ ;
+    char *strv = (char *)malloc(nlen + 1) ;
+    if (strv == NULL) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+        return NULL ;
+    }
+
+    int slen = strlen(str->value.svalue_) ;
+    if (nlen > slen) 
+    {
+        strcpy(strv, str->value.svalue_); 
+    } 
+    else
+    {
+        strncpy(strv, str->value.svalue_ + slen - nlen, nlen);
+    }
+    strv[nlen] = '\0' ;
+
+    basic_value_t *ret = basic_create_string_value(strv) ;
+    free(strv) ;
+
+    if (ret == NULL)
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+
+    return ret ;
+}
+
+static basic_value_t* func_mid(int count, basic_value_t** args, basic_err_t *err)
+{
+    if (count != 3) {
+        *err = BASIC_ERR_BAD_ARG_COUNT;
+        return NULL;
+    }
+
+    basic_value_t* str = args[0];
+    if (str->type_ != BASIC_VALUE_TYPE_STRING) {
+        *err = BASIC_ERR_TYPE_MISMATCH;
+        return NULL;
+    }
+
+    basic_value_t* pos = args[1] ;
+    if (pos->type_ != BASIC_VALUE_TYPE_NUMBER) {
+        *err = BASIC_ERR_TYPE_MISMATCH;
+        return NULL;
+    }
+    int npos = pos->value.nvalue_ ;
+
+    basic_value_t* len = args[1] ;
+    if (len->type_ != BASIC_VALUE_TYPE_NUMBER) {
+        *err = BASIC_ERR_TYPE_MISMATCH;
+        return NULL;
+    }
+    int nlen = len->value.nvalue_ ;
+
+    char *strv = (char *)malloc(nlen + 1) ;
+    if (strv == NULL) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+        return NULL ;
+    }
+
+    int slen = strlen(str->value.svalue_) ;
+
+    if (npos > slen) 
+    {
+        // Position is past the end of the source string
+        *strv = '\0' ;
+    }
+    else if (npos + nlen > slen) 
+    {
+        // Position plus length exceeds the length of the source string
+        strcpy(strv, &str->value.svalue_[npos]) ;
+    }
+    else
+    {
+        strncpy(strv, &str->value.svalue_[npos], nlen) ;
+        strv[nlen] = '\0'; 
+    }
+
+    basic_value_t *ret = basic_create_string_value(strv) ;
+    free(strv) ;
+
+    if (ret == NULL)
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+
+    return ret ;
+}
+
 static int match_def_local(expr_ctxt_t *ctxt)
 {
     if (ctxt->argcnt_ > 0) {
@@ -1022,7 +1330,7 @@ static const char *parse_operand(expr_ctxt_t *ctxt, const char *line, basic_oper
         line++ ;
         ctxt->parsebuffer[bind] = '\0' ;
 
-        basic_value_t *value = create_string_value(ctxt->parsebuffer) ;
+        basic_value_t *value = basic_create_string_value(ctxt->parsebuffer) ;
         if (value == NULL) {
             *err = BASIC_ERR_OUT_OF_MEMORY ;
             return NULL ;
@@ -1063,9 +1371,18 @@ static const char *parse_operand(expr_ctxt_t *ctxt, const char *line, basic_oper
             }
 
             for (int i = 0; i < fun->num_args_; i++) {
-                line = parse_operand_top(line, 0, NULL, &(*operand)->operand_.function_.args_[i], err);
+                line = parse_operand_top(line, ctxt->argcnt_, ctxt->argnames_, &(*operand)->operand_.function_.args_[i], err);
                 if (line == NULL)
                     return NULL;
+
+                if (i != fun->num_args_ - 1) {
+                    if (*line != ',') {
+                        *err = BASIC_ERR_EXPECTED_COMMA ;
+                        return NULL ;
+                    }
+
+                    line++ ;
+                }
             }
 
             if (*line != ')') {
@@ -1493,7 +1810,7 @@ static basic_value_t *clone_value(basic_value_t *v)
     if (v->type_ == BASIC_VALUE_TYPE_NUMBER)
         ret = create_number_value(v->value.nvalue_) ;
     else
-        ret = create_string_value(v->value.svalue_) ;
+        ret = basic_create_string_value(v->value.svalue_) ;
 
     return ret;
 }
@@ -1883,7 +2200,7 @@ static basic_value_t *eval_node(basic_operand_t *op, int vcnt, char **names, bas
                         if (dimval == NULL)
                             return NULL ;
 
-                        if (ret != NULL && dimval->type_ == BASIC_VALUE_TYPE_STRING) {
+                        if (dimval->type_ == BASIC_VALUE_TYPE_STRING) {
                             *err = BASIC_ERR_TYPE_MISMATCH;
                             return NULL ;
                         }
@@ -1907,7 +2224,7 @@ static basic_value_t *eval_node(basic_operand_t *op, int vcnt, char **names, bas
 
                 for (int i = 0; i < argcnt ; i++) {
                     basic_operand_t* argexpr = op->operand_.function_.args_[i];
-                    argvals[i] = eval_node(argexpr,  0, NULL, NULL, err);
+                    argvals[i] = eval_node(argexpr,  vcnt, names, values, err);
                     if (argvals[i] == NULL)
                         return NULL;
                 }

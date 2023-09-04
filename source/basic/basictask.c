@@ -5,14 +5,39 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
-
 typedef struct queue_entry
 {
     char *line_ ;
     basic_out_fn_t outfn_ ;
 } queue_entry_t ;
 
-QueueHandle_t line_queue ;
+static bool store_input_ = false ;
+static QueueHandle_t line_queue ;
+
+void basic_task_store_input(bool enabled)
+{
+    queue_entry_t *entry ;
+
+    store_input_ = enabled ;
+
+    //
+    // Flush any existing lines
+    //
+    while (uxQueueMessagesWaiting(line_queue) > 0) {
+        xQueueReceive(line_queue, &entry, (TickType_t)0x7fffffff) ;
+    }
+}
+
+const char *basic_task_get_line()
+{
+    queue_entry_t *entry ;
+
+    if (xQueueReceive(line_queue, &entry, (TickType_t)0x7fffffff) == pdPASS) {
+        return entry->line_ ;
+    }
+
+    return NULL ;
+}
 
 void basic_task(void *param)
 {
@@ -25,7 +50,10 @@ void basic_task(void *param)
     }
 
     while (true) {
-        if (xQueueReceive(line_queue, &entry, (TickType_t)0x7fffffff) == pdPASS) {
+        if (store_input_) {
+            vTaskDelay(100 / portTICK_PERIOD_MS) ;
+        }
+        else if (xQueueReceive(line_queue, &entry, (TickType_t)0x7fffffff) == pdPASS) {
             basic_line_proc(entry->line_, entry->outfn_);
             free(entry->line_) ;
             free(entry);
@@ -34,7 +62,7 @@ void basic_task(void *param)
     }
 }
 
-bool basic_queue_line(const char *line, basic_out_fn_t outfn)
+bool basic_task_queue_line(const char *line, basic_out_fn_t outfn)
 {
     queue_entry_t *entry = (queue_entry_t *)malloc(sizeof(queue_entry_t)) ;
     if (entry == NULL) {

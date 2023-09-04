@@ -1,0 +1,21 @@
+- Freezing in debugger in VS Code (CLOSED)
+  o Issue with GDB/OpenOCD interaction, workaround by HDM in next release
+
+- Watch window does not update (CLOSED)
+  o Bug in VSCode extension, fixed in next release by Haneef
+
+- Slow step time for some projects in VSCode/Eclipse (OPEN)
+  o Bad stack trace when including some specific network code
+  o Workaround by HDM in next release of extension
+  o Need to identify real issue
+
+- Intellisense gets confused at times (OPEN)
+  o Maybe related to parsing comment based on how we generate compiler commands file
+
+- When INCLUDE_vTaskDelete in FreeRTOS.h is true, IDLE task crashes (OPEN)
+  o Need to investigate
+
+- Need a way to decode cy_rslt_t messages
+  o Add a decode feature to mtbassistant
+
+  

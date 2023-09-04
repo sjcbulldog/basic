@@ -1,15 +1,3 @@
 TODO
-- fix client disconnects
 - switch to emFile file system
-- deal with parse error with 'load' command
 - change networksvc from a while (1) sleep -> an event
-- make let keyword be optional
-- find HP basic references
-- fix backspace in UART windows
-
-DONE
-- interpret telnet protocol in-band commands correctly
-- fix cls not rehoming cursor
-- fix flistflist
-- fix disconnect and reconnect
-- message on wifi connect

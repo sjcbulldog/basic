@@ -115,7 +115,7 @@ void uart_task(void *param)
     {
         if (xQueueReceive(inputqueue, &text, (TickType_t)0x7fffffff) == pdPASS)
         {
-            basic_queue_line(text, uart_output);
+            basic_task_queue_line(text, uart_output);
             otherinuse = false;
         }
     }
