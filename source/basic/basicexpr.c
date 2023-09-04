@@ -57,6 +57,8 @@ static basic_value_t *func_sqrt(int count, basic_value_t** args, basic_err_t *er
 static basic_value_t *func_left(int count, basic_value_t**args, basic_err_t *err) ;
 static basic_value_t *func_right(int count, basic_value_t**args, basic_err_t *err) ;
 static basic_value_t *func_mid(int count, basic_value_t**args, basic_err_t *err) ;
+static basic_value_t *func_len(int count, basic_value_t**args, basic_err_t *err) ;
+static basic_value_t *func_str(int count, basic_value_t**args, basic_err_t *err) ;
 
 function_table_t functions[] =
 {
@@ -67,6 +69,8 @@ function_table_t functions[] =
     { 2, "LEFT$", func_left},
     { 2, "RIGHT$", func_right},
     { 3, "MID$", func_mid},
+    { 1, "LEN", func_len},
+    { 1, "STR$", func_str}
 };
 
 const char* basic_expr_parse_dims_const(const char* line, uint32_t* dimcnt, uint32_t* dims, basic_err_t* err)
@@ -1171,9 +1175,9 @@ static basic_value_t* func_mid(int count, basic_value_t** args, basic_err_t *err
         *err = BASIC_ERR_TYPE_MISMATCH;
         return NULL;
     }
-    int npos = pos->value.nvalue_ ;
+    int npos = pos->value.nvalue_ - 1;
 
-    basic_value_t* len = args[1] ;
+    basic_value_t* len = args[2] ;
     if (len->type_ != BASIC_VALUE_TYPE_NUMBER) {
         *err = BASIC_ERR_TYPE_MISMATCH;
         return NULL;
@@ -1209,6 +1213,50 @@ static basic_value_t* func_mid(int count, basic_value_t** args, basic_err_t *err
 
     if (ret == NULL)
         *err = BASIC_ERR_OUT_OF_MEMORY ;
+
+    return ret ;
+}
+
+static basic_value_t* func_len(int count, basic_value_t** args, basic_err_t *err)
+{
+    if (count != 1) {
+        *err = BASIC_ERR_BAD_ARG_COUNT;
+        return NULL;
+    }
+
+    basic_value_t* str = args[0];
+    if (str->type_ != BASIC_VALUE_TYPE_STRING) {
+        *err = BASIC_ERR_TYPE_MISMATCH;
+        return NULL;
+    }
+
+    return create_number_value(strlen(str->value.svalue_)) ;
+}
+
+static basic_value_t* func_str(int count, basic_value_t** args, basic_err_t *err)
+{
+    static char buf[16] ;
+
+    if (count != 1) {
+        *err = BASIC_ERR_BAD_ARG_COUNT;
+        return NULL;
+    }
+
+    basic_value_t* value = args[0];
+    if (value->type_ != BASIC_VALUE_TYPE_NUMBER) {
+        *err = BASIC_ERR_TYPE_MISMATCH;
+        return NULL;
+    }
+
+    if ((value->value.nvalue_ - (int)value->value.nvalue_) < 1e-6)
+        sprintf(buf, " %d ", (int)value->value.nvalue_);
+    else
+        sprintf(buf, " %f ", value->value.nvalue_);
+
+    basic_value_t *ret = basic_create_string_value(buf) ;
+    if (ret == NULL) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+    }
 
     return ret ;
 }
@@ -1928,16 +1976,24 @@ static basic_value_t *eval_power(basic_value_t *left, basic_value_t *right, basi
 
 static basic_value_t *eval_not_equal(basic_value_t *left, basic_value_t *right, basic_err_t *err)
 {
-    basic_value_t *ret ;
+    basic_value_t *ret = NULL ;
+    int p ;
 
-    if (left->type_ == BASIC_VALUE_TYPE_STRING || right->type_ == BASIC_VALUE_TYPE_STRING) {
+    if (left->type_ == BASIC_VALUE_TYPE_STRING && right->type_ == BASIC_VALUE_TYPE_STRING) 
+    {
+        p = (strcmp(left->value.svalue_, right->value.svalue_) != 0) ;
+    }
+    else if (left->type_ == BASIC_VALUE_TYPE_NUMBER && right->type_ == BASIC_VALUE_TYPE_NUMBER) 
+    {
+        p = (left->value.nvalue_ != right->value.nvalue_) ;
+    }
+    else 
+    {
         *err = BASIC_ERR_TYPE_MISMATCH ;
         return NULL ;
     }
 
-    double p = (left->value.nvalue_ != right->value.nvalue_) ;
     ret = create_number_value(p) ;
-
     if (ret == NULL) {
         *err = BASIC_ERR_OUT_OF_MEMORY ;
     }
@@ -1947,16 +2003,24 @@ static basic_value_t *eval_not_equal(basic_value_t *left, basic_value_t *right, 
 
 static basic_value_t *eval_equal(basic_value_t *left, basic_value_t *right, basic_err_t *err)
 {
-    basic_value_t *ret ;
+    basic_value_t *ret = NULL ;
+    int p ;
 
-    if (left->type_ == BASIC_VALUE_TYPE_STRING || right->type_ == BASIC_VALUE_TYPE_STRING) {
+    if (left->type_ == BASIC_VALUE_TYPE_STRING && right->type_ == BASIC_VALUE_TYPE_STRING) 
+    {
+        p = (strcmp(left->value.svalue_, right->value.svalue_) == 0) ;
+    }
+    else if (left->type_ == BASIC_VALUE_TYPE_NUMBER && right->type_ == BASIC_VALUE_TYPE_NUMBER) 
+    {
+        p = (left->value.nvalue_ == right->value.nvalue_) ;
+    }
+    else 
+    {
         *err = BASIC_ERR_TYPE_MISMATCH ;
         return NULL ;
     }
 
-    double p = (left->value.nvalue_ == right->value.nvalue_) ;
     ret = create_number_value(p) ;
-
     if (ret == NULL) {
         *err = BASIC_ERR_OUT_OF_MEMORY ;
     }

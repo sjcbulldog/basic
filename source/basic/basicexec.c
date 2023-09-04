@@ -873,6 +873,7 @@ void basic_input(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
     const char *prompt = NULL ;
     int index = 1 ;
     uint32_t v, varidx ;
+    char *stripped = NULL ;
 
     uint8_t token = line->tokens_[index++];
     if (token == BTOKEN_PROMPT) {
@@ -913,6 +914,12 @@ void basic_input(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
         //
         const char *text = basic_task_get_line() ;
 
+        stripped = (char *)malloc(strlen(text) + 1) ;
+        strcpy(stripped, text) ;
+        int len = strlen(stripped) ;
+        if (stripped[len - 1] == '\n')
+            stripped[len - 1] = '\0' ;
+
         //
         // Parse the line of text
         //
@@ -934,7 +941,7 @@ void basic_input(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
                 // If the input variable is a string, all input is valid, store the input
                 // and return.
                 //
-                basic_var_set_value_string(varidx, text, err) ;
+                basic_var_set_value_string(varidx, stripped, err) ;
             }
             else
             {
@@ -982,6 +989,8 @@ void basic_input(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
         }
     }
 
+    if (stripped)
+        free(stripped) ;
     basic_task_store_input(false) ;
 }
 
@@ -1293,6 +1302,10 @@ void basic_return(basic_line_t *line, exec_context_t *nextline, basic_err_t *err
 
     nextline->line_ = gosub_stack->context_.line_ ;
     nextline->child_ = gosub_stack->context_.child_ ;
+
+    gosub_stack_entry_t *todel = gosub_stack ;
+    gosub_stack = gosub_stack->next_ ;
+    free(todel) ;
     return ;
 }
 
@@ -1479,10 +1492,6 @@ int basic_exec_line(exec_context_t *context, basic_out_fn_t outfn)
             toexec = context->child_ ;
         else
             toexec = context->line_ ;
-
-        if (context->line_->lineno_ == 1600) {
-            printf("\n") ;
-        }
 
         //
         // Execute one statement exactly.  If the statement wants to redirect
