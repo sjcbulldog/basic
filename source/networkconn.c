@@ -95,10 +95,7 @@ void network_connect_task(void *param)
     }
 
     isDone = true ;
-
-    while (true) {
-        vTaskDelay(1000/portTICK_PERIOD_MS);
-    }
+    vTaskDelete(NULL) ;
 }
 
 bool network_connect_done()

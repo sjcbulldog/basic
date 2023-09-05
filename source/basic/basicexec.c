@@ -221,6 +221,20 @@ static bool exprToString(int cnt, basic_line_t* line, uint32_t str)
     return true;
 }
 
+static bool varsToString(basic_line_t *line, uint32_t str)
+{
+    if (line->count_ > 1) {
+        uint32_t exprindex = getU32(line, 1);
+        uint32_t strh = basic_expr_to_string(exprindex);
+        if (!basic_str_add_handle(str, strh)) {
+            basic_str_destroy(strh) ;
+            return false;
+        }
+        basic_str_destroy(strh);        
+    }
+    return true ;
+}
+
 static bool printToString(basic_line_t *line, uint32_t str)
 {
     int index = 1 ;
@@ -498,6 +512,11 @@ static bool oneLineToString(basic_line_t *line, uint32_t str)
                 return false ;
             break ;
 
+        case BTOKEN_VARS:
+            if (!varsToString(line, str))
+                return false ;
+            break ;
+
         case BTOKEN_SAVE:
         case BTOKEN_LOAD:
         case BTOKEN_DEL:
@@ -658,8 +677,6 @@ void basic_store_line(basic_line_t *line)
 
 void basic_cls(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
-    cy_rslt_t res ;
-
     *err = BASIC_ERR_NONE ;
 
     int len = (int)strlen(clearscreen) ;
@@ -758,11 +775,69 @@ void basic_clear(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
     basic_userfn_clear_all() ;
 }
 
+static char fmtbuf[32];
+void basic_vars(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+{
+    const char *prefix = NULL ;
+
+    if (line->count_ > 1) {
+        uint32_t expr = getU32(line, 1) ;
+
+        basic_value_t *value = basic_expr_eval(expr, 0, NULL, NULL, err);
+        if (value == NULL)
+            return ;        
+
+        if (value->type_ != BASIC_VALUE_TYPE_STRING) 
+        {
+            *err = BASIC_ERR_TYPE_MISMATCH ;
+            return ;
+        }
+
+        prefix = value->value.svalue_ ;
+    }
+
+    int cnt = basic_var_count() ;
+    if (cnt > 0) {
+        uint32_t *all = (uint32_t *)malloc(sizeof(uint32_t) * cnt) ;
+        basic_var_get_all(all)  ;
+
+        for(int i = 0 ; i < cnt ; i++) {
+            const char *varname = basic_var_get_name(all[i]) ;
+            if (varname == NULL)
+                continue ;
+
+            if (prefix == NULL || strncmp(prefix, varname, strlen(prefix)) == 0) 
+            {
+                basic_value_t *value = basic_var_get_value(all[i]) ;
+                if (value->type_ == BASIC_VALUE_TYPE_NUMBER) {
+                    if ((value->value.nvalue_ - (int)value->value.nvalue_) < 1e-6)
+                        sprintf(fmtbuf, " %d ", (int)value->value.nvalue_);
+                    else
+                        sprintf(fmtbuf, " %f ", value->value.nvalue_);
+                }
+
+                (*outfn)(varname, strlen(varname)) ;
+                (*outfn)(" = ", 3) ;
+                if (value->type_ == BASIC_VALUE_TYPE_NUMBER)
+                {
+                    (*outfn)(fmtbuf, strlen(fmtbuf)) ;
+                }
+                else
+                {
+                    (*outfn)(value->value.svalue_, strlen(value->value.svalue_)) ;
+                }
+                (*outfn)("\n", 1) ;
+            }
+        }
+        free(all) ;
+    }
+}
+
 void basic_print(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     int index = 1 ;
     int len = 0 ;
-    static char fmtbuf[32];
+
 
     *err = BASIC_ERR_NONE ;    
 
@@ -1402,6 +1477,10 @@ static void exec_one_statement(basic_line_t *line, exec_context_t *current, exec
         case BTOKEN_PRINT:
             basic_print(line, err, outfn) ;
             break;
+
+        case BTOKEN_VARS:
+            basic_vars(line, err, outfn) ;
+            break ;
 
         case BTOKEN_INPUT:
             basic_input(line, err, outfn) ;

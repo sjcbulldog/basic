@@ -42,7 +42,8 @@ typedef enum btokens {
     BTOKEN_END,
     BTOKEN_STOP,
     BTOKEN_TRON,
-    BTOKEN_TROFF
+    BTOKEN_TROFF,
+    BTOKEN_VARS
 } btoken_t ;
 
 typedef struct basic_line

@@ -66,6 +66,7 @@ function_table_t functions[] =
     { 1, "RND", func_rnd },
     { 1, "MEM", func_mem },
     { 1, "SQRT", func_sqrt},
+    { 1, "SQR", func_sqrt},
     { 2, "LEFT$", func_left},
     { 2, "RIGHT$", func_right},
     { 3, "MID$", func_mid},
@@ -465,6 +466,27 @@ static basic_var_t* get_var_from_index(uint32_t index)
     }
 
     return NULL;
+}
+
+int basic_var_count()
+{
+    int cnt = 0 ;
+
+    for(basic_var_t *var = vars ; var != NULL ; var = var->next_) {
+        cnt++ ;
+    }
+
+    return cnt ;
+}
+
+bool basic_var_get_all(uint32_t *all)
+{
+    int index = 0 ;
+
+    for(basic_var_t *var = vars ; var != NULL ; var = var->next_) {
+        all[index++] = var->index_ ;
+    }
+    return true ;
 }
 
 bool basic_var_get(const char *name, uint32_t *index, basic_err_t *err)

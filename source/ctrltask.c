@@ -4,6 +4,7 @@
 #include "initfs.h"
 #include "basictask.h"
 #include "uarttask.h"
+#include "mstask.h"
 
 #include <stdio.h>
 #include <FreeRTOS.h>
@@ -24,14 +25,19 @@
 #define BASIC_TASK_STACK_SIZE               (20 * 1024)
 #define BASIC_TASK_PRIORITY                 (2)
 
+#define USBMSD_TASK_SIZE                    (8 * 1024)
+#define USBMSD_TASK_PRIORITY                (4)
+
 static TaskHandle_t fs_init_handle ;
 static TaskHandle_t netconn_handle ;
 static TaskHandle_t netsvc_handle ;
 static TaskHandle_t uart_handle ;
 static TaskHandle_t basic_handle ;
+static TaskHandle_t usbmsd_handle ;
 
 static bool useUART = true ;
 static bool useWIFI = false ;
+static bool useUSBMS = false ;
 
 void control_task(void *param)
 {
@@ -51,6 +57,14 @@ void control_task(void *param)
     {
         printf("    - could not start basic language processint task\n") ;
         CY_ASSERT(false);
+    }
+
+    if (useUSBMS)
+    {
+        printf("  Starting USB MSD task\n") ;
+        if (xTaskCreate(usb_task, "USBMSD", USBMSD_TASK_SIZE, NULL, USBMSD_TASK_PRIORITY, &usbmsd_handle) != pdPASS) {
+            printf("    - could not start USB mass storage task\n") ;
+        }
     }
 
     if (useWIFI) {

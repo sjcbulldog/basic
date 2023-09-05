@@ -51,6 +51,7 @@ token_table_t tokens[] =
     { BTOKEN_STOP, "STOP"},
     { BTOKEN_TRON, "TRON"},
     { BTOKEN_TROFF, "TROFF"},
+    { BTOKEN_VARS, "VARS"},
 
     { BTOKEN_LET_SIMPLE, "LET"},
     { BTOKEN_LET_ARRAY, "LET"},
@@ -163,6 +164,15 @@ void basic_destroy_line(basic_line_t *line)
                 }
             }
             break; 
+
+            case BTOKEN_VARS:
+            {
+                if (line->count_ > 1) {
+                    uint32_t expridx = getU32(line, 1);
+                    basic_expr_destroy(expridx) ;
+                }
+            }
+            break ;
 
             case BTOKEN_INPUT:
             {
@@ -441,6 +451,28 @@ static const char* parse_def(basic_line_t* bline, const char* line, basic_err_t*
     }
 
     return line;
+}
+
+static const char *parse_vars(basic_line_t *bline, const char *line, basic_err_t *err)
+{
+    line = skipSpaces(line) ;
+    if (*line == '\0' || *line == ':') {
+        *err = BASIC_ERR_NONE ;
+        return line ;
+    }  
+
+    uint32_t exprindex ;
+    line = basic_expr_parse(line, 0, NULL, &exprindex, err) ;
+    if (line == NULL) {
+        return NULL ;
+    }
+
+    if (!add_uint32(bline, exprindex)) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+        return NULL ;
+    }    
+
+    return line ;
 }
 
 static const char *parse_print(basic_line_t *bline, const char *line, basic_err_t *err)
@@ -1051,6 +1083,9 @@ static const char* tokenize_one(const char* line, basic_line_t** bline, basic_er
     }
     else if (token == BTOKEN_PRINT) {
         line = parse_print(ret, line, err);
+    }
+    else if (token == BTOKEN_VARS) {
+        line = parse_vars(ret, line, err) ;
     }
     else if (token == BTOKEN_INPUT) {
         line = parse_input(ret, line, err) ;

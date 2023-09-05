@@ -86,7 +86,7 @@ VERBOSE=
 # added to the build
 
 # Chose desired RTOS environment. Available options - FREERTOS, THREADX
-COMPONENTS=FREERTOS LWIP MBEDTLS SECURE_SOCKETS RTOS_AWARE
+COMPONENTS=FREERTOS LWIP MBEDTLS SECURE_SOCKETS RTOS_AWARE USBD_BASE
 
 # Like COMPONENTS, but disable optional code that was enabled by default.
 DISABLE_COMPONENTS=

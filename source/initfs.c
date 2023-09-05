@@ -8,7 +8,7 @@
 #include <stdio.h>
 
 static BYTE work[FF_MAX_SS];
-static FATFS SDFatFs;
+FATFS SDFatFs;
 static const char *DRIVE_LABEL_NAME = "Basic06" ;
 static bool isDone = false ;
 
@@ -93,10 +93,7 @@ void filesystem_init_task(void *param)
     init_file_system(false) ;
 
     isDone = true ;
-    while (true) {
-        vTaskDelay(10000) ;
-    }
-    // vTaskDelete(NULL) ;
+    vTaskDelete(NULL) ;
 }
 
 bool filesystem_init_done()

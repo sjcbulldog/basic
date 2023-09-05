@@ -31,6 +31,8 @@ static inline const char *skipSpaces(const char *line)
 
 extern basic_value_t *basic_create_string_value(const char *v) ;
 
+extern int basic_var_count() ;
+extern bool basic_var_get_all(uint32_t *all) ;
 extern bool basic_var_get(const char *name, uint32_t *index, basic_err_t *err) ;
 extern bool basic_var_destroy(uint32_t index) ;
 extern bool basic_var_set_value(uint32_t index, basic_value_t *value, basic_err_t *err) ;
