@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Configuration app="BACKEND" formatVersion="13" lastSavedWith="Configurator Backend" lastSavedWithVersion="3.0.0" toolsPackage="ModusToolbox 3.0.0" xmlns="http://cypress.com/xsd/cydesignfile_v4">
+<Configuration app="BACKEND" formatVersion="13" lastSavedWith="Configurator Backend" lastSavedWithVersion="3.10.0" toolsPackage="ModusToolbox 3.1.0" xmlns="http://cypress.com/xsd/cydesignfile_v4">
     <Devices>
         <Device mpn="CY8C624ABZI-S2D44">
             <BlockConfig>
@@ -134,6 +134,34 @@
                     <Alias value="CYBSP_LED4"/>
                     <Alias value="CYBSP_USER_LED1"/>
                     <Alias value="CYBSP_USER_LED"/>
+                </Block>
+                <Block location="ioss[0].port[14].pin[0]">
+                    <Personality template="pin" version="3.0">
+                        <Param id="DriveModes" value="CY_GPIO_DM_ANALOG"/>
+                        <Param id="initialState" value="1"/>
+                        <Param id="nonSec" value="1"/>
+                        <Param id="vtrip" value="CY_GPIO_VTRIP_CMOS"/>
+                        <Param id="isrTrigger" value="CY_GPIO_INTR_DISABLE"/>
+                        <Param id="slewRate" value="CY_GPIO_SLEW_FAST"/>
+                        <Param id="driveStrength" value="CY_GPIO_DRIVE_1_2"/>
+                        <Param id="sioOutputBuffer" value="true"/>
+                        <Param id="pullUpRes" value="CY_GPIO_PULLUP_RES_DISABLE"/>
+                        <Param id="inFlash" value="true"/>
+                    </Personality>
+                </Block>
+                <Block location="ioss[0].port[14].pin[1]">
+                    <Personality template="pin" version="3.0">
+                        <Param id="DriveModes" value="CY_GPIO_DM_ANALOG"/>
+                        <Param id="initialState" value="1"/>
+                        <Param id="nonSec" value="1"/>
+                        <Param id="vtrip" value="CY_GPIO_VTRIP_CMOS"/>
+                        <Param id="isrTrigger" value="CY_GPIO_INTR_DISABLE"/>
+                        <Param id="slewRate" value="CY_GPIO_SLEW_FAST"/>
+                        <Param id="driveStrength" value="CY_GPIO_DRIVE_1_2"/>
+                        <Param id="sioOutputBuffer" value="true"/>
+                        <Param id="pullUpRes" value="CY_GPIO_PULLUP_RES_DISABLE"/>
+                        <Param id="inFlash" value="true"/>
+                    </Personality>
                 </Block>
                 <Block location="ioss[0].port[1].pin[0]">
                     <Alias value="CYBSP_CSD_TX"/>
@@ -424,6 +452,13 @@
                         <Param id="inFlash" value="true"/>
                     </Personality>
                 </Block>
+                <Block location="peri[0].div_16[0]">
+                    <Personality template="pclk" version="3.0">
+                        <Param id="intDivider" value="480"/>
+                        <Param id="fracDivider" value="0"/>
+                        <Param id="startOnReset" value="true"/>
+                    </Personality>
+                </Block>
                 <Block location="peri[0].div_16[15]">
                     <Personality template="pclk" version="3.0">
                         <Param id="intDivider" value="1"/>
@@ -472,7 +507,13 @@
                 </Block>
                 <Block location="srss[0].clock[0].hfclk[0]">
                     <Personality template="hfclk" version="3.0">
-                        <Param id="sourceClockNumber" value="0"/>
+                        <Param id="sourceClockNumber" value="1"/>
+                        <Param id="divider" value="1"/>
+                    </Personality>
+                </Block>
+                <Block location="srss[0].clock[0].hfclk[3]">
+                    <Personality template="hfclk" version="3.0">
+                        <Param id="sourceClockNumber" value="1"/>
                         <Param id="divider" value="1"/>
                     </Personality>
                 </Block>
@@ -483,7 +524,7 @@
                 </Block>
                 <Block location="srss[0].clock[0].imo[0]">
                     <Personality template="imo" version="3.0">
-                        <Param id="trim" value="1"/>
+                        <Param id="trim" value="0.25"/>
                     </Personality>
                 </Block>
                 <Block location="srss[0].clock[0].lfclk[0]">
@@ -566,6 +607,11 @@
                         <Param id="vddio1Mv" value="3300"/>
                     </Personality>
                 </Block>
+                <Block location="usb[0]">
+                    <Personality template="mxs40emusb" version="1.0">
+                        <Param id="mode" value="Device"/>
+                    </Personality>
+                </Block>
             </BlockConfig>
             <Netlist>
                 <Net>
@@ -595,6 +641,22 @@
                 <Net>
                     <Port name="ioss[0].port[0].pin[1].analog[0]"/>
                     <Port name="srss[0].clock[0].wco[0].wco_out[0]"/>
+                </Net>
+                <Net>
+                    <Port name="ioss[0].port[14].pin[0].aux[0]"/>
+                    <Port name="usb[0].usb_dp_pad[0]"/>
+                </Net>
+                <Net>
+                    <Port name="ioss[0].port[14].pin[1].aux[0]"/>
+                    <Port name="usb[0].usb_dm_pad[0]"/>
+                </Net>
+                <Net>
+                    <Port name="peri[0].div_16[0].clk[0]"/>
+                    <Port name="usb[0].clock_dev_brs[0]"/>
+                </Net>
+                <Net>
+                    <Port name="srss[0].clock[0].hfclk[3].root_clk[0]"/>
+                    <Port name="usb[0].clk_usb_dev[0]"/>
                 </Net>
                 <Mux name="sense" location="csd[0].csd[0]">
                     <Arm>

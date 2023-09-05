@@ -26,7 +26,7 @@
 #define BASIC_TASK_PRIORITY                 (2)
 
 #define USBMSD_TASK_SIZE                    (8 * 1024)
-#define USBMSD_TASK_PRIORITY                (4)
+#define USBMSD_TASK_PRIORITY                (3)
 
 static TaskHandle_t fs_init_handle ;
 static TaskHandle_t netconn_handle ;
@@ -37,7 +37,7 @@ static TaskHandle_t usbmsd_handle ;
 
 static bool useUART = true ;
 static bool useWIFI = false ;
-static bool useUSBMS = false ;
+static bool useUSBMS = true ;
 
 void control_task(void *param)
 {

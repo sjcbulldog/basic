@@ -3,11 +3,14 @@
 #include <FreeRTOS.h>
 #include <semphr.h>
 
+#include "ff.h"
 #include "USB.h"
 #include "USB_MSD.h"
 #include "cycfg_emusbdev.h"
+#include <stdio.h>
 
 SemaphoreHandle_t rtos_fs_mutex;
+extern FATFS SDFatFs;
 
 /*****************************************************************************
 * Macros
@@ -36,11 +39,7 @@ static uint32_t sector_buffer[BUFFER_SIZE / 4];     /* Used as sector buffer in 
 *****************************************************************************/
 static void usb_add_msd(void)
 {
-#if defined(COMPONENT_CAT1A) || defined(COMPONENT_CAT3)
     static U8            usb_out_buffer[USB_FS_BULK_MAX_PACKET_SIZE];
-#else
-    static U8            usb_out_buffer[USB_HS_BULK_MAX_PACKET_SIZE];
-#endif
 
     USB_MSD_INIT_DATA    InitData;
     USB_MSD_INST_DATA    InstData;
@@ -51,22 +50,14 @@ static void usb_add_msd(void)
     EPIn.Flags           = 0;                             /* Flags not used */
     EPIn.InDir           = USB_DIR_IN;                    /* IN direction (Device to Host) */
     EPIn.Interval        = 0;
-#if defined(COMPONENT_CAT1A) || defined(COMPONENT_CAT3)
     EPIn.MaxPacketSize   = USB_FS_BULK_MAX_PACKET_SIZE;   /* Maximum packet size (64 for Bulk in full-speed) */
-#else
-    EPIn.MaxPacketSize   = USB_HS_BULK_MAX_PACKET_SIZE;   /* Maximum packet size (512 for Bulk in high-speed) */
-#endif
     EPIn.TransferType    = USB_TRANSFER_TYPE_BULK;        /* Endpoint type - Bulk */
     InitData.EPIn        = USBD_AddEPEx(&EPIn, NULL, 0);
 
     EPOut.Flags          = 0;                             /* Flags not used */
     EPOut.InDir          = USB_DIR_OUT;                   /* OUT direction (Host to Device) */
     EPOut.Interval       = 0;
-#if defined(COMPONENT_CAT1A) || defined(COMPONENT_CAT3)
     EPOut.MaxPacketSize  = USB_FS_BULK_MAX_PACKET_SIZE;   /* Maximum packet size (64 for Bulk out full-speed) */
-#else
-    EPOut.MaxPacketSize  = USB_HS_BULK_MAX_PACKET_SIZE;   /* Maximum packet size (512 for Bulk out high-speed) */
-#endif
     EPOut.TransferType   = USB_TRANSFER_TYPE_BULK;        /* Endpoint type - Bulk */
     InitData.EPOut       = USBD_AddEPEx(&EPOut, usb_out_buffer, sizeof(usb_out_buffer));
 
@@ -113,6 +104,8 @@ void usb_comm_init(void)
 
 void usb_task(void *arg)
 {
+    FRESULT result ;
+
     rtos_fs_mutex = xSemaphoreCreateMutex() ;
 
     if (NULL != rtos_fs_mutex)
@@ -127,6 +120,8 @@ void usb_task(void *arg)
             xSemaphoreGive(rtos_fs_mutex);
         }
     }
+    printf("  mass storage device ready\n") ;
+    
     while (1)
     {
         if (NULL != rtos_fs_mutex)

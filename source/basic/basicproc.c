@@ -1005,7 +1005,7 @@ static const char *parse_if(basic_line_t* bline, const char* line, basic_err_t* 
     return line ;
 }
 
-static const char* tokenize_one(const char* line, basic_line_t** bline, basic_err_t* err)
+static const char* tokenize_one(const char* line, basic_line_t *prev, basic_line_t** bline, basic_err_t* err)
 {
     basic_line_t* ret;
     uint8_t token;
@@ -1020,102 +1020,119 @@ static const char* tokenize_one(const char* line, basic_line_t** bline, basic_er
     }
     *bline = ret;
 
-    //
-    // Now, look for a token to start the line
-    //
-    const char* save = line;
-    line = parse_keyword(line, &token, err);
-    if (line == NULL) {
-        line = save;
-        int errsave = *err;
-
+    if (prev != NULL && prev->tokens_[0] == BTOKEN_IF && isdigit((uint8_t)*line)) {
         //
-        // Ok, it is not a basic token, but it might be a variables
+        // This is the line number following a then statement
         //
-        line = parse_let(ret, line, err);
-        if (line == NULL) {
-            *err = errsave;
-            basic_destroy_line(ret);
-            *bline = NULL;
-            return NULL;
+        if (!add_token(ret, BTOKEN_GOTO)) {
+            *err = BASIC_ERR_OUT_OF_MEMORY ;
+            return NULL ;
         }
-        else {
-            return line;
-        }
-    }
 
-    add_token(ret, token);
-
-    if (token == BTOKEN_TO || token == BTOKEN_STEP) {
-        basic_destroy_line(ret);
-        *err = BASIC_ERR_INVALID_TOKEN;
-        ret = NULL;
-    }
-    else if (token == BTOKEN_CLEAR || token == BTOKEN_CLS || token == BTOKEN_RUN || token == BTOKEN_END ||
-             token == BTOKEN_THEN || token == BTOKEN_FLIST || token == BTOKEN_RETURN || 
-             token == BTOKEN_STOP || token == BTOKEN_TRON || token == BTOKEN_TROFF)
-    {
-        line = skipSpaces(line);
-        if (*line != '\0' && *line != ':') {
-            *err = BASIC_ERR_EXTRA_CHARS;
-            line = NULL ;
-        }
-    }
-    else if (token == BTOKEN_LIST) {
-        line = parse_list(ret, line, err) ;
-    }
-    else if (token == BTOKEN_REM) {
-        ret->extra_ = _strdup(line);
-        if (ret->extra_ == NULL) {
-            *err = BASIC_ERR_OUT_OF_MEMORY;
-            basic_destroy_line(ret);
-            ret = NULL;
-        }
-        int len = (int)strlen(ret->extra_);
-        if (ret->extra_[len - 1] == '\n') {
-            ret->extra_[len - 1] = '\0';
-        }
-        while (*line != '\0')
-            line++;
-    }
-    else if (token == BTOKEN_LET) {
-        line = parse_let(ret, line, err);
-    }
-    else if (token == BTOKEN_PRINT) {
-        line = parse_print(ret, line, err);
-    }
-    else if (token == BTOKEN_VARS) {
-        line = parse_vars(ret, line, err) ;
-    }
-    else if (token == BTOKEN_INPUT) {
-        line = parse_input(ret, line, err) ;
-    }
-    else if (token == BTOKEN_ON) {
-        line = parse_on(ret, line, err) ;        
-    }
-    else if (token == BTOKEN_DEF) {
-        line = parse_def(ret, line, err);
-    }
-    else if (token == BTOKEN_FOR) {
-        line = parse_for(ret, line, err) ;
-    }
-    else if (token == BTOKEN_GOTO || token == BTOKEN_GOSUB) {
         line = parse_goto_gosub(ret, line, err) ;
     }
-    else if (token == BTOKEN_IF) {
-        line = parse_if(ret, line, err);
-    }
-    else if (token == BTOKEN_NEXT) {
-        line = parse_next(ret, line, err) ;
-    }
-    else if (token == BTOKEN_LOAD || token == BTOKEN_SAVE || token == BTOKEN_DEL) {
-        line = parse_strings(1, ret, line, err) ;
-    }
-    else if (token == BTOKEN_RENAME) {
-        line = parse_strings(2, ret, line, err) ;        
-    }
-    else if (token == BTOKEN_DIM) {
-        line = parse_dim(ret, line, err) ;
+    else
+    {
+        //
+        // Now, look for a token to start the line
+        //
+        const char* save = line;
+        line = parse_keyword(line, &token, err);
+        if (line == NULL) {
+            line = save;
+            int errsave = *err;
+
+            //
+            // Ok, it is not a basic token, but it might be a variables
+            //
+            line = parse_let(ret, line, err);
+            if (line == NULL) {
+                *err = errsave;
+                basic_destroy_line(ret);
+                *bline = NULL;
+                return NULL;
+            }
+            else {
+                return line;
+            }
+        }
+
+        if (!add_token(ret, token)) {
+            *err = BASIC_ERR_OUT_OF_MEMORY ;
+            return NULL ;
+        }
+
+        if (token == BTOKEN_TO || token == BTOKEN_STEP) {
+            basic_destroy_line(ret);
+            *err = BASIC_ERR_INVALID_TOKEN;
+            ret = NULL;
+        }
+        else if (token == BTOKEN_CLEAR || token == BTOKEN_CLS || token == BTOKEN_RUN || token == BTOKEN_END ||
+                token == BTOKEN_THEN || token == BTOKEN_FLIST || token == BTOKEN_RETURN || 
+                token == BTOKEN_STOP || token == BTOKEN_TRON || token == BTOKEN_TROFF)
+        {
+            line = skipSpaces(line);
+            if (*line != '\0' && *line != ':') {
+                *err = BASIC_ERR_EXTRA_CHARS;
+                line = NULL ;
+            }
+        }
+        else if (token == BTOKEN_LIST) {
+            line = parse_list(ret, line, err) ;
+        }
+        else if (token == BTOKEN_REM) {
+            ret->extra_ = _strdup(line);
+            if (ret->extra_ == NULL) {
+                *err = BASIC_ERR_OUT_OF_MEMORY;
+                basic_destroy_line(ret);
+                ret = NULL;
+            }
+            int len = (int)strlen(ret->extra_);
+            if (ret->extra_[len - 1] == '\n') {
+                ret->extra_[len - 1] = '\0';
+            }
+            while (*line != '\0')
+                line++;
+        }
+        else if (token == BTOKEN_LET) {
+            line = parse_let(ret, line, err);
+        }
+        else if (token == BTOKEN_PRINT) {
+            line = parse_print(ret, line, err);
+        }
+        else if (token == BTOKEN_VARS) {
+            line = parse_vars(ret, line, err) ;
+        }
+        else if (token == BTOKEN_INPUT) {
+            line = parse_input(ret, line, err) ;
+        }
+        else if (token == BTOKEN_ON) {
+            line = parse_on(ret, line, err) ;        
+        }
+        else if (token == BTOKEN_DEF) {
+            line = parse_def(ret, line, err);
+        }
+        else if (token == BTOKEN_FOR) {
+            line = parse_for(ret, line, err) ;
+        }
+        else if (token == BTOKEN_GOTO || token == BTOKEN_GOSUB) {
+            line = parse_goto_gosub(ret, line, err) ;
+        }
+        else if (token == BTOKEN_IF) {
+            line = parse_if(ret, line, err);
+        }
+        else if (token == BTOKEN_NEXT) {
+            line = parse_next(ret, line, err) ;
+        }
+        else if (token == BTOKEN_LOAD || token == BTOKEN_SAVE || token == BTOKEN_DEL) {
+            line = parse_strings(1, ret, line, err) ;
+        }
+        else if (token == BTOKEN_RENAME) {
+            line = parse_strings(2, ret, line, err) ;        
+        }
+        else if (token == BTOKEN_DIM) {
+            line = parse_dim(ret, line, err) ;
+        }
     }
 
     if (line == NULL) {
@@ -1148,8 +1165,11 @@ static basic_line_t *tokenize(const char *line, basic_err_t *err)
     }
 
     while (true) {
+        line = skipSpaces(line) ;
+
+
         if (first) {
-            line = tokenize_one(line, &ret, err) ;
+            line = tokenize_one(line, parsed, &ret, err) ;
             if (line == NULL)
                 return NULL ;
 
@@ -1158,7 +1178,7 @@ static basic_line_t *tokenize(const char *line, basic_err_t *err)
             parsed = ret ;
         }
         else {
-            line = tokenize_one(line, &child, err) ;
+            line = tokenize_one(line, parsed, &child, err) ;
             if (line == NULL)
                 return NULL ;
 

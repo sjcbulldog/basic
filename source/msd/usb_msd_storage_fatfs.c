@@ -306,6 +306,7 @@ static U32 get_buffer(U8 Lun, U32 SectorIndex, void **ppData, U32 NumSectors)
 *****************************************************************************/
 static U32 get_read_buffer(U8 Lun, U32 SectorIndex, void **ppData, U32 NumSectors)
 {
+
     /* Same buffer is used for read & write */
     return get_buffer(Lun, SectorIndex, ppData, NumSectors);
 }

@@ -12,10 +12,10 @@
 - Intellisense gets confused at times (OPEN)
   o Maybe related to parsing comment based on how we generate compiler commands file
 
-- When INCLUDE_vTaskDelete in FreeRTOS.h is true, IDLE task crashes (OPEN)
-  o Need to investigate
-
 - Need a way to decode cy_rslt_t messages
   o Add a decode feature to mtbassistant
 
-  
+- Adding FS to code w/ MSC access
+  o The code example for MSC uses a FAT filesystem in the code example, not emFile
+
+- 
