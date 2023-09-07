@@ -242,6 +242,7 @@ static bool readToString(basic_line_t *line, uint32_t str)
 {
     int index = 1 ;
     uint32_t varidx ;
+    uint8_t token ;
 
     while (index < line->count_) {
         if (index != 1) {
@@ -250,11 +251,44 @@ static bool readToString(basic_line_t *line, uint32_t str)
             }            
         }
 
+        token = line->tokens_[index++] ;
         varidx = getU32(line, index) ;
         index += 4 ;
-
         if (!basic_str_add_handle(str, varidx))
             return false ;
+
+        if (token == BTOKEN_LET_ARRAY)
+        {
+            if (!basic_str_add_str(str, "(")) {
+                return false;
+            }              
+
+            uint32_t dimcnt = getU32(line, index) ;
+            index += 4 ;
+
+            for(int i = 0 ; i < dimcnt ; i++) {
+                if (i != 0) {
+                    if (!basic_str_add_str(str, ",")) {
+                        return false;
+                    }                     
+                }
+
+                uint32_t expridx = getU32(line, index) ;
+                index += 4 ;
+
+                uint32_t strh = basic_expr_to_string(expridx);
+                if (!basic_str_add_handle(str, strh)) {
+                    basic_str_destroy(strh) ;
+                    return false;
+                }
+                basic_str_destroy(strh); 
+                                 
+            }
+
+            if (!basic_str_add_str(str, ")")) {
+                return false;
+            }   
+        }
     }
 
     return true ;
@@ -1507,6 +1541,9 @@ void basic_if(basic_line_t *line, exec_context_t *current, exec_context_t *nextl
         //
         nextline->line_ = current->line_->next_ ;
         nextline->child_ = NULL ;
+
+        if (nextline->line_ == NULL)
+            nextline->lastline_ = true ;
     }
 
     *err = BASIC_ERR_NONE ;    
@@ -1892,6 +1929,7 @@ int basic_exec_line(exec_context_t *context, basic_out_fn_t outfn)
     while (context->line_ != NULL) {
         nextone.line_ = NULL ;
         nextone.child_ = NULL ;
+        nextone.lastline_ = false ;
 
         if (context->child_ != NULL)
             toexec = context->child_ ;
@@ -1906,14 +1944,19 @@ int basic_exec_line(exec_context_t *context, basic_out_fn_t outfn)
 
         // Error executing the last line
         if (code != BASIC_ERR_NONE) {
-            if (toexec->lineno_ != -1) {
+            if (toexec->lineno_ != -1) 
+            {
                 sprintf(tbuf, "Program failed: line %d: error code %d\n", toexec->lineno_, code) ;
-                (*outfn)(tbuf, strlen(tbuf)) ;
             }
+            else 
+            {
+                sprintf(tbuf, "Command failed: error code %d\n", code) ;
+            }
+            (*outfn)(tbuf, strlen(tbuf)) ;
             break ;
         }
 
-        if (end_program != BTOKEN_RUN)
+        if (end_program != BTOKEN_RUN || nextone.lastline_ == true)
             return BASIC_ERR_NONE ;
 
         if (nextone.line_ != NULL) 

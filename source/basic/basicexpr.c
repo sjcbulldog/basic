@@ -76,6 +76,22 @@ function_table_t functions[] =
     { 1, "ABS", func_abs},
 };
 
+
+static void dump_expr_stack(const char *title)
+{
+    #ifdef DUMP_STACK
+    basic_expr_t *top = exprs ;
+    int cnt = 1 ;
+
+    printf("=============== %s ====================\n", title) ;
+    while (top) {
+        printf("%d: serial = %ld  expr = %08lx  top = %08lx\n", cnt++, top->serial_, (uint32_t)top, (uint32_t)top->top_) ;
+        top = top->next_ ;
+    }
+    printf("====================================================================\n") ;    
+    #endif
+}
+
 const char* basic_expr_parse_dims_const(const char* line, uint32_t* dimcnt, uint32_t* dims, basic_err_t* err)
 {
     *dimcnt = 0;
@@ -860,8 +876,11 @@ static void basic_destroy_operand(basic_operand_t *operand)
     }
 }
 
+static uint32_t sval = 0 ;
 static bool create_expr(basic_operand_t *operand, uint32_t *index, basic_err_t *err)
 {
+    dump_expr_stack("before create_expr") ;
+
     basic_expr_t *expr = (basic_expr_t *)malloc(sizeof(basic_expr_t)) ;
     if (expr == NULL) {
         *err = BASIC_ERR_OUT_OF_MEMORY ;
@@ -871,8 +890,11 @@ static bool create_expr(basic_operand_t *operand, uint32_t *index, basic_err_t *
     expr->index_ = next_expr_index++ ;
     expr->top_ = operand ;
     expr->next_ = exprs ;
+    expr->serial_ = sval++ ;
     exprs = expr ;
     *index = expr->index_ ;
+
+    dump_expr_stack("after create_expr") ;    
 
     return true ;
 }
@@ -1495,6 +1517,14 @@ static const char *parse_operand(expr_ctxt_t *ctxt, const char *line, basic_oper
                 }
 
                 for (int i = 0; i < ufn->argcnt_; i++) {
+                    if (i != 0) {
+                        line = skipSpaces(line) ;
+                        if (*line != ',') {
+                            *err = BASIC_ERR_EXPECTED_COMMA ;
+                            return NULL ;
+                        }
+                        line = skipSpaces(line + 1) ;
+                    }
                     line = parse_operand_top(line, 0, NULL, &(*operand)->operand_.userfn_.args_[i], err);
                     if (line == NULL)
                         return NULL;
@@ -1839,12 +1869,13 @@ static const char* parse_operand_top(const char* line, int argcnt, char **argnam
     return line;
 }
 
+
 const char *basic_expr_parse(const char *line, int argcnt, char **argnames, uint32_t *index, basic_err_t *err)
 {
     basic_operand_t* op;
     
     line = parse_operand_top(line, argcnt, argnames, &op, err);
-    if (op == NULL)
+    if (line == NULL)
         return NULL ;
 
     //
@@ -1869,6 +1900,8 @@ static basic_expr_t *get_expr_from_index(uint32_t index)
 
 bool basic_expr_destroy(uint32_t index)
 {
+    dump_expr_stack("before basic_expr_destroy") ;
+
     basic_expr_t *expr = get_expr_from_index(index) ;
     if (expr == NULL)
         return false ;
@@ -1887,7 +1920,10 @@ bool basic_expr_destroy(uint32_t index)
         e->next_ = expr->next_ ;
     }
 
+
     free(expr) ;
+
+    dump_expr_stack("after basic_expr_destroy") ;    
     return true ;
 }
 

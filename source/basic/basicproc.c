@@ -177,11 +177,27 @@ void basic_destroy_line(basic_line_t *line)
 
             case BTOKEN_READ:
             {
+                uint8_t token ;
                 int index = 1;
                 while (index < line->count_) {
+                    token = line->tokens_[index++] ;
                     uint32_t stridx = getU32(line, index);
                     index += 4;
                     basic_str_destroy(stridx);
+
+                    if (token == BTOKEN_LET_ARRAY)
+                    {
+                        uint32_t dimcnt = getU32(line, index) ;
+                        index+= 4 ;
+
+                        for(int i = 0 ; i < dimcnt ; i++)
+                        {
+                            uint32_t expridx = getU32(line, index) ;
+                            index += 4 ;
+
+                            basic_expr_destroy(expridx) ;
+                        }
+                    }
                 }
             }
             break;
@@ -570,8 +586,6 @@ static const char *parse_add_var_name(basic_line_t *bline, const char *line, bas
 
     line = skipSpaces(line) ;
 
-
-    bline->count_ = 0;
     if (dimcnt > 0) {
         if (!add_token(bline, BTOKEN_LET_ARRAY)) {
             *err = BASIC_ERR_OUT_OF_MEMORY ;
@@ -631,6 +645,7 @@ static const char *parse_read(basic_line_t *bline, const char *line, basic_err_t
             return NULL ;
 
         line = skipSpaces(line) ;
+        first = false ;
     }
 
     return line ;
@@ -688,6 +703,7 @@ static const char *parse_data(basic_line_t *bline, const char *line, basic_err_t
         }
 
         first = false ;
+        line = skipSpaces(line) ;
     }
 
     return line ;
@@ -917,6 +933,7 @@ static const char *parse_let(basic_line_t *bline, const char *line, basic_err_t 
 {
     uint32_t exprindex ;
 
+    bline->count_ = 0 ;
     line = parse_add_var_name(bline, line, err) ;
     if (line == NULL)
         return NULL ;

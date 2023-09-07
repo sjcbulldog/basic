@@ -109,6 +109,7 @@ typedef struct basic_expr
     basic_operand_t *top_ ;
     uint32_t index_ ;
     struct basic_expr *next_ ;
+    uint32_t serial_ ;
 } basic_expr_t ;
 
 typedef struct expr_ctxt

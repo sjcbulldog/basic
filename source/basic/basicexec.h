@@ -25,7 +25,7 @@ static inline uint32_t getU32(basic_line_t *line, int index)
 static inline double getDouble(basic_line_t *line, int index)
 {
     double value ;
-    double *ptr = &value ;
+    uint8_t *ptr = (uint8_t *)&value ;
 
     for(int i = 0 ;i < sizeof(double) ; i++) {
         *ptr++ = line->tokens_[index++] ;

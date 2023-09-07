@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+#include <stdbool.h>
 
 //
 // Token types
@@ -67,6 +68,7 @@ typedef struct exec_context
 {
     basic_line_t *line_ ;
     basic_line_t *child_ ;
+    bool lastline_ ;
     struct exec_context *next_ ;         // Not always used, but these can be linked to create a stack
 } exec_context_t ;
 
