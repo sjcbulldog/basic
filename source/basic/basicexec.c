@@ -795,6 +795,14 @@ void basic_cls(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
     (*outfn)(clearscreen, len) ;
 }
 
+
+void basic_restore()
+{
+    data_context.line_ = program ;
+    data_context.child_ = NULL ;
+    data_index = 1 ;
+}
+
 void basic_run(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     static const char *StoppedMessage = "Program Stopped" ;
@@ -864,17 +872,10 @@ void basic_list(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
     }
 }
 
-void basic_clear(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+void basic_clear_int()
 {
     basic_line_t *pgm = program ;
-
-    *err = BASIC_ERR_NONE ;    
-
-    if (line->lineno_ != -1) {
-        *err = BASIC_ERR_NOT_ALLOWED ;
-        return ;
-    }    
-
+    
     while (pgm) {
         basic_line_t *next = pgm->next_ ;
         basic_destroy_line(pgm) ;
@@ -887,6 +888,18 @@ void basic_clear(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
     basic_var_clear_all() ;
     basic_expr_clear_all() ;
     basic_userfn_clear_all() ;
+}
+
+void basic_clear(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+{
+    *err = BASIC_ERR_NONE ;    
+
+    if (line->lineno_ != -1) {
+        *err = BASIC_ERR_NOT_ALLOWED ;
+        return ;
+    }
+
+    basic_clear_int() ;
 }
 
 static char fmtbuf[32];
@@ -1246,16 +1259,65 @@ static basic_line_t *get_active_line(exec_context_t *c)
 void basic_read(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     int index = 1 ;
-    basic_line_t *toexec ;
-    uint8_t token ;
+    uint8_t token, vtoken ;
+    static uint32_t dims[BASIC_MAX_DIMS] ;
+    uint32_t dimcnt, varidx ;
 
     while (index < line->count_) {
-        uint32_t varidx = getU32(line, index) ;
+
+        vtoken = line->tokens_[index++] ;
+
+        uint32_t varstridx = getU32(line, index) ;
         index += 4 ;
 
-        const char *varname = basic_str_value(varidx) ;
+        const char *varname = basic_str_value(varstridx) ;
         if (varname == NULL)
-            continue ;
+        {
+            *err = BASIC_ERR_INVALID_VARNAME ;
+            return ;
+        }
+
+        if (!basic_var_get(varname, &varidx, err))
+            return ;
+
+        if (vtoken == BTOKEN_LET_ARRAY) 
+        {
+            uint32_t dimcnt = getU32(line, index);
+            index += 4;
+
+            for(uint32_t i = 0 ; i < dimcnt ; i++) {
+                uint32_t exprindex = getU32(line, index) ;
+                index += 4 ;
+
+                basic_value_t* value = basic_expr_eval(exprindex, 0, NULL, NULL, err);
+                if (value == NULL)
+                    return;
+
+                if (value->type_ == BASIC_VALUE_TYPE_STRING) {
+                    *err = BASIC_ERR_TYPE_MISMATCH;
+                    return;
+                }
+
+                if (value->value.nvalue_ < 0) {
+                    *err = BASIC_ERR_INVALID_DIMENSION;
+                    return;
+                }
+
+                dims[i] = (uint32_t)value->value.nvalue_;
+            }
+
+            int vardimcnt = basic_var_get_dim_count(varidx, err) ;
+            if (vardimcnt == -1)
+                return ;
+
+            if (vardimcnt != dimcnt) {
+                *err = BASIC_ERR_DIM_MISMATCH ;
+                return ;
+            }
+        }
+        else {
+            dimcnt = 0 ;
+        }
 
         if (!find_next_data_line())
         {
@@ -1268,6 +1330,7 @@ void basic_read(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 
         basic_line_t *dline = get_active_line(&data_context);
         token = dline->tokens_[data_index++] ;
+        basic_value_t *dvalue = NULL ;
 
         if (varname[strlen(varname) - 1] == '$') 
         {
@@ -1278,6 +1341,13 @@ void basic_read(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 
             uint32_t strh = getU32(dline, data_index) ;
             data_index += 4 ;
+
+            const char *valuestr = basic_str_value(strh) ;
+            dvalue = basic_create_string_value(valuestr) ;
+            if (dvalue == NULL) {
+                *err = BASIC_ERR_OUT_OF_MEMORY ;
+                return ;
+            }
         }
         else
         {
@@ -1285,22 +1355,35 @@ void basic_read(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
                 *err = BASIC_ERR_TYPE_MISMATCH ;
                 return ;
             }
+
+            double v = getDouble(dline, data_index) ;
+            data_index += sizeof(double) ;
+
+            dvalue = basic_create_number_value(v) ;
+            if (dvalue == NULL) {
+                *err = BASIC_ERR_OUT_OF_MEMORY ;
+                return ;
+            }
+        }
+
+        if (dimcnt == 0) 
+        {
+            if (!basic_var_set_value(varidx, dvalue, err))
+                return ;
+        }
+        else
+        {
+            if (!basic_var_set_array_value(varidx, dvalue, dims, err))
+                return ;
         }
 
         if (data_index == dline->count_) {
             forwardOneStmt(&data_context);
             data_index = 1 ;
         }
-    }
-  
+    }  
 }
 
-void basic_restore()
-{
-    data_context.line_ = program ;
-    data_context.child_ = NULL ;
-    data_index = 1 ;
-}
 
 void basic_let_simple(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {

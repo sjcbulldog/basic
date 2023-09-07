@@ -30,6 +30,7 @@ static inline const char *skipSpaces(const char *line)
 }
 
 extern basic_value_t *basic_create_string_value(const char *v) ;
+extern basic_value_t *basic_create_number_value(double d) ;
 
 extern int basic_var_count() ;
 extern bool basic_var_get_all(uint32_t *all) ;
@@ -52,7 +53,7 @@ extern const char *basic_expr_parse_int(const char *line, int *value, basic_err_
 extern const char *basic_expr_parse_number(const char *line, double *value, basic_err_t *err) ;
 extern const char *basic_expr_parse_str(const char *line, uint32_t *value, basic_err_t *err) ;
 extern const char* basic_expr_parse_dims_const(const char* line, uint32_t* dimcnt, uint32_t* dims, basic_err_t* err);
-extern const char* basic_expr_parse_dims_expr(const char* line, int* dimcnt, uint32_t *dims, basic_err_t* err);
+extern const char* basic_expr_parse_dims_expr(const char* line, uint32_t* dimcnt, uint32_t *dims, basic_err_t* err);
 
 extern const char *basic_expr_parse(const char *line, int argcnt, char **argnames, uint32_t *index, basic_err_t *err) ;
 extern basic_value_t *basic_expr_eval(uint32_t index, uint32_t cntv, char **names, basic_value_t **values, basic_err_t *err);

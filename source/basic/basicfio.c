@@ -21,6 +21,7 @@ static char filename[64] ;
 static char filename2[64] ;
 
 extern SemaphoreHandle_t rtos_fs_mutex;
+extern void basic_clear_int() ;
 
 #ifdef USE_LOCKS
 static bool lockfs(basic_err_t *err)
@@ -60,8 +61,6 @@ static bool unlockfs(basic_err_t *err)
 }
 #endif
 
-
-
 void basic_save(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     FIL fp ;
@@ -88,7 +87,7 @@ void basic_save(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
     strcat(filename, value->value.svalue_);
 
     if (!lockfs(err))
-        return false ;
+        return ;
 
     res = f_open(&fp, filename, FA_CREATE_ALWAYS | FA_WRITE);
     if (res != FR_OK) {
@@ -151,8 +150,10 @@ void basic_load(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
     strcpy(filename, "/") ;
     strcat(filename, value->value.svalue_);
 
+    basic_clear_int() ;
+
     if (!lockfs(err))
-        return false ;
+        return ;
 
     basic_proc_load(filename, err, outfn) ;
 
@@ -169,7 +170,7 @@ void basic_flist(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
     *err = BASIC_ERR_NONE ;    
 
     if (!lockfs(err))
-        return false ;
+        return ;
 
     FRESULT res = f_opendir (&dp, "/") ;
     if (res != FR_OK) {

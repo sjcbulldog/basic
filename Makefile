@@ -121,7 +121,7 @@ VFP_SELECT=softfp
 #
 # NOTE: Includes and defines should use the INCLUDES and DEFINES variable
 # above.
-CFLAGS=
+CFLAGS=-Werror -Wno-error=stringop-overflow -Wno-stringop-overflow
 
 # Additional / custom C++ compiler flags.
 #

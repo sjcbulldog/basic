@@ -484,6 +484,8 @@ static const char* parse_def(basic_line_t* bline, const char* line, basic_err_t*
             *err = BASIC_ERR_EXPECTED_CLOSEPAREN;
             return NULL;
         }
+
+        line++ ;
     }
 
     line = skipSpaces(line + 1);
@@ -543,11 +545,75 @@ static const char *parse_vars(basic_line_t *bline, const char *line, basic_err_t
     return line ;
 }
 
-static const char *parse_read(basic_line_t *bline, const char *line, basic_err_t *err)
+static const char *parse_add_var_name(basic_line_t *bline, const char *line, basic_err_t *err)
 {
     uint32_t varindex ;
-    bool first = true ;
+    uint32_t dimcnt = 0 ;
+    uint32_t dims[BASIC_MAX_DIMS] ;
 
+    line = parse_varname(line, &varindex, err) ;
+    if (line == NULL) {
+        return NULL ;
+    }
+
+    line = skipSpaces(line) ;
+    if (*line == '(') {
+        //
+        // This is an array
+        //
+        line = basic_expr_parse_dims_expr(line, &dimcnt, dims, err);
+        if (line == NULL)
+            return NULL;
+
+        line = skipSpaces(line);
+    }
+
+    line = skipSpaces(line) ;
+
+
+    bline->count_ = 0;
+    if (dimcnt > 0) {
+        if (!add_token(bline, BTOKEN_LET_ARRAY)) {
+            *err = BASIC_ERR_OUT_OF_MEMORY ;
+            return NULL ;
+        }
+
+        if (!add_uint32(bline, varindex)) {
+            *err = BASIC_ERR_OUT_OF_MEMORY ;
+            return NULL ;
+        }
+
+        if (!add_uint32(bline, dimcnt)) {
+            *err = BASIC_ERR_OUT_OF_MEMORY;
+            return NULL;
+        }
+
+        for(int i = 0 ; i < dimcnt ; i++) {
+            if (!add_uint32(bline, dims[i])) {
+                *err = BASIC_ERR_OUT_OF_MEMORY ;
+                return NULL ;
+            }            
+        }
+    }
+    else {
+        if (!add_token(bline, BTOKEN_LET_SIMPLE)) {
+            *err = BASIC_ERR_OUT_OF_MEMORY ;
+            return NULL ;
+        }
+
+        if (!add_uint32(bline, varindex)) {
+            *err = BASIC_ERR_OUT_OF_MEMORY ;
+            return NULL ;
+        }
+    }
+
+    return line ;
+}
+
+
+static const char *parse_read(basic_line_t *bline, const char *line, basic_err_t *err)
+{
+    bool first = true ;
 
     while (*line != '\0' && *line != ':') 
     {
@@ -560,10 +626,9 @@ static const char *parse_read(basic_line_t *bline, const char *line, basic_err_t
             line = skipSpaces(line + 1) ;
         }
 
-        line = parse_varname(line, &varindex, err) ;
-        if (line == NULL) {
+        line = parse_add_var_name(bline, line, err) ;
+        if (line == NULL)
             return NULL ;
-        }
 
         line = skipSpaces(line) ;
     }
@@ -850,80 +915,30 @@ static const char *parse_on(basic_line_t *bline, const char *line, basic_err_t *
 
 static const char *parse_let(basic_line_t *bline, const char *line, basic_err_t *err)
 {
-    uint32_t varindex, exprindex ;
-    int dimcnt = 0 ;
-    uint32_t dims[BASIC_MAX_DIMS] ;
+    uint32_t exprindex ;
 
-    line = parse_varname(line, &varindex, err) ;
-    if (line == NULL) {
+    line = parse_add_var_name(bline, line, err) ;
+    if (line == NULL)
         return NULL ;
-    }
 
     line = skipSpaces(line) ;
-    if (*line == '(') {
-        //
-        // This is an array
-        //
-        line = basic_expr_parse_dims_expr(line, &dimcnt, dims, err);
-        if (line == NULL)
-            return NULL;
-
-        line = skipSpaces(line);
-    }
 
     if (*line != '=') {
         *err = BASIC_ERR_EXPECTED_EQUAL ;
         return NULL ;
-    }
-
+    }    
     line++ ;
 
     line = basic_expr_parse(line, 0, NULL, &exprindex, err) ;
     if (line == NULL) {
         return NULL ;
-    }
+    }    
 
     line = skipSpaces(line) ;
     if (*line != '\0' && *line != ':') {
         *err = BASIC_ERR_EXTRA_CHARS ;
         return NULL ;
-    }
-
-    bline->count_ = 0;
-    if (dimcnt > 0) {
-        if (!add_token(bline, BTOKEN_LET_ARRAY)) {
-            *err = BASIC_ERR_OUT_OF_MEMORY ;
-            return NULL ;
-        }
-
-        if (!add_uint32(bline, varindex)) {
-            *err = BASIC_ERR_OUT_OF_MEMORY ;
-            return NULL ;
-        }
-
-        if (!add_uint32(bline, dimcnt)) {
-            *err = BASIC_ERR_OUT_OF_MEMORY;
-            return NULL;
-        }
-
-        for(int i = 0 ; i < dimcnt ; i++) {
-            if (!add_uint32(bline, dims[i])) {
-                *err = BASIC_ERR_OUT_OF_MEMORY ;
-                return NULL ;
-            }            
-        }
-    }
-    else {
-        if (!add_token(bline, BTOKEN_LET_SIMPLE)) {
-            *err = BASIC_ERR_OUT_OF_MEMORY ;
-            return NULL ;
-        }
-
-        if (!add_uint32(bline, varindex)) {
-            *err = BASIC_ERR_OUT_OF_MEMORY ;
-            return NULL ;
-        }
-    }
+    }    
 
     if (!add_uint32(bline, exprindex)) {
         *err = BASIC_ERR_OUT_OF_MEMORY ;
@@ -1546,5 +1561,3 @@ void basic_prompt(basic_out_fn_t outfn)
 {
     (*outfn)(prompt, (int)strlen(prompt)) ;
 }
-
-
