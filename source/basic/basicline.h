@@ -12,6 +12,9 @@ typedef enum btokens {
     BTOKEN_LET_SIMPLE,
     BTOKEN_PROMPT,
     BTOKEN_NO_PROMPT,
+    BTOKEN_EXPR,
+    BTOKEN_NUMBER,
+    BTOKEN_STRING,
 
     // These below here are in the token table in basicproc.c
     BTOKEN_RUN,
@@ -24,6 +27,7 @@ typedef enum btokens {
     BTOKEN_FOR,
     BTOKEN_NEXT,
     BTOKEN_TO,
+    BTOKEN_TAB,
     BTOKEN_GOTO,
     BTOKEN_GOSUB,
     BTOKEN_RETURN,
@@ -43,7 +47,10 @@ typedef enum btokens {
     BTOKEN_STOP,
     BTOKEN_TRON,
     BTOKEN_TROFF,
-    BTOKEN_VARS
+    BTOKEN_VARS,
+    BTOKEN_DATA,
+    BTOKEN_READ,
+    BTOKEN_RESTORE
 } btoken_t ;
 
 typedef struct basic_line

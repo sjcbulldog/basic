@@ -1,0 +1,4 @@
+10 FOR X = 1 to 10
+20 FOR Y = 1 to 10
+30 PRINT X, Y, X * Y
+40 NEXT Y,X

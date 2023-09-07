@@ -21,3 +21,15 @@ static inline uint32_t getU32(basic_line_t *line, int index)
 
     return ret;
 }
+
+static inline double getDouble(basic_line_t *line, int index)
+{
+    double value ;
+    double *ptr = &value ;
+
+    for(int i = 0 ;i < sizeof(double) ; i++) {
+        *ptr++ = line->tokens_[index++] ;
+    }
+
+    return value ;
+}

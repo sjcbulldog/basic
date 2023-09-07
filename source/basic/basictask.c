@@ -28,15 +28,17 @@ void basic_task_store_input(bool enabled)
     }
 }
 
-const char *basic_task_get_line()
+char *basic_task_get_line()
 {
+    char *ret = NULL ;
     queue_entry_t *entry ;
 
     if (xQueueReceive(line_queue, &entry, (TickType_t)0x7fffffff) == pdPASS) {
-        return entry->line_ ;
+        ret = entry->line_ ;
+        free(entry) ;
     }
 
-    return NULL ;
+    return ret ;
 }
 
 void basic_task(void *param)

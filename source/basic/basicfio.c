@@ -9,12 +9,58 @@
 #include <string.h>
 #include <stdio.h>
 #include <malloc.h>
+#include <FreeRTOS.h>
+#include <semphr.h>
+
+#define USE_LOCKS
 
 extern basic_line_t *program ;
 extern uint32_t lineToString(basic_line_t *line) ;
 
 static char filename[64] ;
 static char filename2[64] ;
+
+extern SemaphoreHandle_t rtos_fs_mutex;
+
+#ifdef USE_LOCKS
+static bool lockfs(basic_err_t *err)
+{
+    if (rtos_fs_mutex != NULL) {
+        //
+        // If the Mass Storage task is running, this will be non-null
+        //
+
+        if (pdTRUE != xSemaphoreTake(rtos_fs_mutex, portMAX_DELAY)) {
+            *err = BASIC_ERR_IO_ERROR ;
+            return false ;
+        }
+    }
+
+    return true ;
+}
+
+static bool unlockfs(basic_err_t *err)
+{
+    if (pdTRUE != xSemaphoreGive(rtos_fs_mutex)) {
+        *err = BASIC_ERR_IO_ERROR ;
+        return false ;
+    }
+
+    return true ;
+}
+#else
+static bool lockfs(basic_err_t *err)
+{
+    return true ;
+}
+
+static bool unlockfs(basic_err_t *err)
+{
+    return true ;
+}
+#endif
+
+
 
 void basic_save(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
@@ -40,6 +86,9 @@ void basic_save(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 
     strcpy(filename, "/") ;
     strcat(filename, value->value.svalue_);
+
+    if (!lockfs(err))
+        return false ;
 
     res = f_open(&fp, filename, FA_CREATE_ALWAYS | FA_WRITE);
     if (res != FR_OK) {
@@ -76,7 +125,9 @@ void basic_save(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
             return ;
         }
     }
+
     f_close(&fp) ;
+    unlockfs(err) ;
 }
 
 void basic_load(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
@@ -100,7 +151,12 @@ void basic_load(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
     strcpy(filename, "/") ;
     strcat(filename, value->value.svalue_);
 
+    if (!lockfs(err))
+        return false ;
+
     basic_proc_load(filename, err, outfn) ;
+
+    unlockfs(err) ;
 }
 
 void basic_flist(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
@@ -112,9 +168,15 @@ void basic_flist(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 
     *err = BASIC_ERR_NONE ;    
 
+    if (!lockfs(err))
+        return false ;
+
     FRESULT res = f_opendir (&dp, "/") ;
     if (res != FR_OK) {
         *err = BASIC_ERR_SDCARD_ERROR ;
+        if (rtos_fs_mutex != NULL) {
+            xSemaphoreGive(rtos_fs_mutex);
+        }  
         return ;
     }
 
@@ -158,6 +220,8 @@ void basic_flist(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 
     (*outfn)("\n", 1);
     f_closedir(&dp);
+
+    unlockfs(err) ;    
 }
 
 void basic_del(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
@@ -181,9 +245,14 @@ void basic_del(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
     strcpy(filename, "/") ;
     strcat(filename, value->value.svalue_);
 
+    if (!lockfs(err))
+        return ;
+
     if (f_unlink(filename) != FR_OK) {
         *err = BASIC_ERR_IO_ERROR ;
     }
+
+    unlockfs(err) ;
 }
 
 void basic_rename(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
@@ -220,7 +289,12 @@ void basic_rename(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
     strcpy(filename2, "/") ;
     strcat(filename2, value->value.svalue_);
 
+    if (!lockfs(err))
+        return ;
+
     if (f_rename(filename, filename2) != FR_OK) {
         *err = BASIC_ERR_IO_ERROR ;
     }
+
+    unlockfs(err);
 }

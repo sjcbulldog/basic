@@ -104,9 +104,9 @@ void usb_comm_init(void)
 
 void usb_task(void *arg)
 {
-    FRESULT result ;
-
     rtos_fs_mutex = xSemaphoreCreateMutex() ;
+
+    USBD_SetLogFilter(USB_MTYPE_INFO) ;
 
     if (NULL != rtos_fs_mutex)
     {
@@ -120,8 +120,6 @@ void usb_task(void *arg)
             xSemaphoreGive(rtos_fs_mutex);
         }
     }
-    printf("  mass storage device ready\n") ;
-    
     while (1)
     {
         if (NULL != rtos_fs_mutex)

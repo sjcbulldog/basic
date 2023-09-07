@@ -55,5 +55,6 @@ typedef enum basic_err {
     BASIC_ERR_INVALID_LINE_NUMBER,
     BASIC_ERR_INVALID_VARNAME,
     BASIC_ERR_TOO_MANY_STRING_VARS,
+    BASIC_ERR_NO_DATA,
 
 } basic_err_t ;

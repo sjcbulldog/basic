@@ -1,0 +1,13 @@
+
+4  3  2
+5  X  1
+6  7  8
+ 
+
+Computer
+0 - cum map
+1 - status report
+2 - enemy ships ?
+3 - starbases
+4 - targeting computer
+5 - the galaxy (check this)

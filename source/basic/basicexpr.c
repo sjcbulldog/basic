@@ -59,6 +59,7 @@ static basic_value_t *func_right(int count, basic_value_t**args, basic_err_t *er
 static basic_value_t *func_mid(int count, basic_value_t**args, basic_err_t *err) ;
 static basic_value_t *func_len(int count, basic_value_t**args, basic_err_t *err) ;
 static basic_value_t *func_str(int count, basic_value_t**args, basic_err_t *err) ;
+static basic_value_t *func_abs(int count, basic_value_t**args, basic_err_t *err) ;
 
 function_table_t functions[] =
 {
@@ -71,7 +72,8 @@ function_table_t functions[] =
     { 2, "RIGHT$", func_right},
     { 3, "MID$", func_mid},
     { 1, "LEN", func_len},
-    { 1, "STR$", func_str}
+    { 1, "STR$", func_str},
+    { 1, "ABS", func_abs},
 };
 
 const char* basic_expr_parse_dims_const(const char* line, uint32_t* dimcnt, uint32_t* dims, basic_err_t* err)
@@ -1281,6 +1283,22 @@ static basic_value_t* func_str(int count, basic_value_t** args, basic_err_t *err
     }
 
     return ret ;
+}
+
+static basic_value_t* func_abs(int count, basic_value_t** args, basic_err_t *err)
+{
+    if (count != 1) {
+        *err = BASIC_ERR_BAD_ARG_COUNT;
+        return NULL;
+    }
+
+    basic_value_t* v = args[0];
+    if (v->type_ != BASIC_VALUE_TYPE_NUMBER) {
+        *err = BASIC_ERR_TYPE_MISMATCH;
+        return NULL;
+    }
+
+    return create_number_value(fabs(v->value.nvalue_)) ;
 }
 
 static int match_def_local(expr_ctxt_t *ctxt)
