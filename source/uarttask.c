@@ -12,6 +12,7 @@ static bool otherinuse = false;
 static char buffer[256];
 static char other[256];
 static char lf = '\n';
+static char delete = 0x7f ;
 
 static void uart_event_handler(void *arg, cyhal_uart_event_t event)
 {
@@ -26,12 +27,22 @@ static void uart_event_handler(void *arg, cyhal_uart_event_t event)
             // Read one character from the UART
             cyhal_uart_read(&cy_retarget_io_uart_obj, &buffer[cindex], &len);
 
-            if (buffer[cindex] == 0x7f)
+            if (buffer[cindex] == 0x7f || buffer[cindex] == 0x08)
             {
                 if (cindex > 0)
                 {
                     len = 1;
-                    cyhal_uart_write(&cy_retarget_io_uart_obj, &buffer[cindex], &len);
+                    cyhal_uart_write(&cy_retarget_io_uart_obj, &delete, &len);
+                    cindex--;
+                }
+            }
+            else if (buffer[cindex] == 0x15)
+            {
+                buffer[cindex] = 0x7f ;
+                while (cindex > 0) 
+                {
+                    len = 1;
+                    cyhal_uart_write(&cy_retarget_io_uart_obj, &delete, &len);
                     cindex--;
                 }
             }
@@ -51,14 +62,11 @@ static void uart_event_handler(void *arg, cyhal_uart_event_t event)
                 buffer[cindex + 1] = '\0';
                 if (buffer[cindex] == '\n')
                 {
-                    if (strlen(buffer) > 1)
+                    void *addr = &other[0];
+                    if (!otherinuse)
                     {
-                        void *addr = &other[0];
-                        if (!otherinuse)
-                        {
-                            strcpy(other, buffer);
-                            xQueueSendFromISR(inputqueue, &addr, NULL);
-                        }
+                        strcpy(other, buffer);
+                        xQueueSendFromISR(inputqueue, &addr, NULL);
                     }
                     cindex = 0;
                 }
