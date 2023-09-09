@@ -1,3 +1,9 @@
+#ifdef DESKTOP
+#define _CRTDBG_MAP_ALLOC
+#include <stdlib.h>
+#include <crtdbg.h>
+#endif
+
 #include "basicexec.h"
 #include "basicerr.h"
 #include "basicproc.h"
@@ -5,11 +11,14 @@
 #include "basiccfg.h"
 #include "basicstr.h"
 #include "basictask.h"
+#ifndef DESKTOP
 #include <FreeRTOS.h>
 #include <task.h>
+#endif
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+#include <memory.h>
 #include <malloc.h>
 
 extern void basic_save(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn) ;
@@ -74,7 +83,7 @@ static void forwardOneStmt(exec_context_t *ctxt)
 
 static bool dimToString(basic_line_t* line, uint32_t str)
 {
-    int index = 1;
+    uint32_t index = 1;
     uint32_t dimcnt, varnameidx ;
 
     while (index < line->count_)
@@ -105,11 +114,20 @@ static bool dimToString(basic_line_t* line, uint32_t str)
                     return false;
             }
 
-            uint32_t tmp = getU32(line, index);
+            uint32_t expridx = getU32(line, index);
             index += 4;
 
-            if (!basic_str_add_int(str, tmp))
+            uint32_t strh = basic_expr_to_string(expridx);
+            if (strh == BASIC_STR_INVALID)
+            {
                 return false;
+            }
+
+            if (!basic_str_add_handle(str, strh)) {
+                basic_str_destroy(strh);
+                return false;
+            }
+            basic_str_destroy(strh);
         }
 
         if (!basic_str_add_str(str, ")"))
@@ -240,7 +258,7 @@ static bool varsToString(basic_line_t *line, uint32_t str)
 
 static bool readToString(basic_line_t *line, uint32_t str)
 {
-    int index = 1 ;
+    uint32_t index = 1 ;
     uint32_t varidx ;
     uint8_t token ;
 
@@ -266,7 +284,7 @@ static bool readToString(basic_line_t *line, uint32_t str)
             uint32_t dimcnt = getU32(line, index) ;
             index += 4 ;
 
-            for(int i = 0 ; i < dimcnt ; i++) {
+            for(uint32_t i = 0 ; i < dimcnt ; i++) {
                 if (i != 0) {
                     if (!basic_str_add_str(str, ",")) {
                         return false;
@@ -296,7 +314,7 @@ static bool readToString(basic_line_t *line, uint32_t str)
 
 static bool dataToString(basic_line_t *line, uint32_t str)
 {
-    int index = 1 ;
+    uint32_t index = 1 ;
     uint8_t token ;
 
     while (index < line->count_) {
@@ -313,8 +331,16 @@ static bool dataToString(basic_line_t *line, uint32_t str)
             uint32_t strh = getU32(line, index) ;
             index += 4 ;
 
+            if (!basic_str_add_str(str, "\"")) {
+                return false;
+            }                 
+
             if (!basic_str_add_handle(str, strh))
                 return false ;
+
+            if (!basic_str_add_str(str, "\"")) {
+                return false;
+            }                 
         }
         else
         {
@@ -339,7 +365,7 @@ static bool dataToString(basic_line_t *line, uint32_t str)
 
 static bool printToString(basic_line_t *line, uint32_t str)
 {
-    int index = 1 ;
+    uint32_t index = 1 ;
     while (index < line->count_) 
     {
         if (line->tokens_[index] == BTOKEN_TAB) 
@@ -407,7 +433,7 @@ static bool remToString(basic_line_t *line, uint32_t str)
 
 static bool nextToString(basic_line_t *line, uint32_t str)
 {
-    int index = 1 ;
+    uint32_t index = 1 ;
 
     while (index < line->count_) {
         if (index != 1) {
@@ -427,7 +453,7 @@ static bool nextToString(basic_line_t *line, uint32_t str)
 static bool forToString(basic_line_t *line, uint32_t str)
 {
     uint32_t idx, strh ;
-    int index = 1 ;
+    uint32_t index = 1 ;
 
     idx = getU32(line, index);
     const char* varname = basic_var_get_name(idx) ;
@@ -496,7 +522,7 @@ static bool defToString(basic_line_t *line, uint32_t str)
     if (!basic_str_add_str(str, "("))
         return false ;
 
-    for(int i = 0 ; i < argcnt ; i++) 
+    for(uint32_t i = 0 ; i < argcnt ; i++) 
     {
         if (i != 0) {
             if (!basic_str_add_str(str, ","))
@@ -541,7 +567,7 @@ static bool ifToString(basic_line_t *line, uint32_t str)
 static bool inputToString(basic_line_t *line, uint32_t str)
 {
     uint32_t strh ;
-    int index = 1 ;
+    uint32_t index = 1 ;
     uint8_t token = getU32(line, index++) ;
     bool first = true ;
 
@@ -577,9 +603,9 @@ static bool inputToString(basic_line_t *line, uint32_t str)
 
 static bool onToString(basic_line_t *line, uint32_t str)
 {
-    int index = 1 ;
+    uint32_t index = 1 ;
     uint32_t exprindex = getU32(line, index) ;
-    index+= 4 ;
+    index += 4 ;
 
     uint32_t strh = basic_expr_to_string(exprindex) ;
     if (!basic_str_add_handle(str, strh))
@@ -703,6 +729,7 @@ static bool oneLineToString(basic_line_t *line, uint32_t str)
         case BTOKEN_TROFF:
         case BTOKEN_CLS:
         case BTOKEN_RESTORE:
+        case BTOKEN_MEM:
             break ;
 
         case BTOKEN_IF:
@@ -839,7 +866,7 @@ void basic_restore()
 
 void basic_run(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
-    static const char *StoppedMessage = "Program Stopped" ;
+    static const char *StoppedMessage = "Program Stopped\n" ;
 
     if (line->lineno_ != -1) {
         *err = BASIC_ERR_NOT_ALLOWED ;
@@ -856,7 +883,7 @@ void basic_run(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
     *err = basic_exec_line(&context, outfn) ;
     if (end_program == BTOKEN_STOP) {
         // TODO: Add line number to this message
-        (outfn)(StoppedMessage, strlen(StoppedMessage)) ;
+        (outfn)(StoppedMessage, (int)strlen(StoppedMessage)) ;
     }
 
     end_program = BTOKEN_RUN ;
@@ -936,7 +963,31 @@ void basic_clear(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
     basic_clear_int() ;
 }
 
-static char fmtbuf[32];
+static char fmtbuf[64];
+void basic_mem(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+{
+    #ifndef DESKTOP
+    struct mallinfo mall_info = mallinfo();
+
+    extern uint8_t __HeapBase;  /* Symbol exported by the linker. */
+    extern uint8_t __HeapLimit; /* Symbol exported by the linker. */
+
+    uint8_t* heap_base = (uint8_t *)&__HeapBase;
+    uint8_t* heap_limit = (uint8_t *)&__HeapLimit;
+    uint32_t heap_size = (uint32_t)(heap_limit - heap_base);    
+
+    sprintf(fmtbuf, "HeapSize        %ld\n", heap_size) ;
+    outfn(fmtbuf, strlen(fmtbuf));
+
+    sprintf(fmtbuf, "Allocated       %d\n", mall_info.uordblks) ;
+    outfn(fmtbuf, strlen(fmtbuf));
+
+    sprintf(fmtbuf, "String Table    %ld\n", basic_str_memsize(true)) ;
+    outfn(fmtbuf, strlen(fmtbuf));    
+
+#endif
+}
+
 void basic_vars(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     const char *prefix = NULL ;
@@ -977,15 +1028,15 @@ void basic_vars(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
                         sprintf(fmtbuf, " %f ", value->value.nvalue_);
                 }
 
-                (*outfn)(varname, strlen(varname)) ;
+                (*outfn)(varname, (int)strlen(varname)) ;
                 (*outfn)(" = ", 3) ;
                 if (value->type_ == BASIC_VALUE_TYPE_NUMBER)
                 {
-                    (*outfn)(fmtbuf, strlen(fmtbuf)) ;
+                    (*outfn)(fmtbuf, (int)strlen(fmtbuf)) ;
                 }
                 else
                 {
-                    (*outfn)(value->value.svalue_, strlen(value->value.svalue_)) ;
+                    (*outfn)(value->value.svalue_, (int)strlen(value->value.svalue_)) ;
                 }
                 (*outfn)("\n", 1) ;
             }
@@ -996,7 +1047,7 @@ void basic_vars(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 
 void basic_print(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
-    int index = 1 ;
+    uint32_t index = 1 ;
     int len = 0 ;
 
     *err = BASIC_ERR_NONE ;    
@@ -1093,7 +1144,7 @@ void basic_on(basic_line_t *line, exec_context_t *current, exec_context_t *nextl
     }
 
     int v = (int)(value->value.nvalue_) - 1;
-    int lineidx = index + v * 4 ;
+    uint32_t lineidx = index + v * 4 ;
     if (lineidx + 4 <= line->count_) {
         int lineno = getU32(line, lineidx);
         basic_line_t *nline = find_line_by_number(lineno) ;
@@ -1133,7 +1184,7 @@ void basic_input(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
     static const char *NotEnoughInput = "not enough input values supplied" ;
 
     const char *prompt = NULL ;
-    int index = 1 ;
+    uint32_t index = 1 ;
     uint32_t v, varidx ;
     char *stripped = NULL ;
 
@@ -1292,7 +1343,7 @@ static basic_line_t *get_active_line(exec_context_t *c)
 
 void basic_read(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
-    int index = 1 ;
+    uint32_t index = 1 ;
     uint8_t token, vtoken ;
     static uint32_t dims[BASIC_MAX_DIMS] ;
     uint32_t dimcnt, varidx ;
@@ -1499,7 +1550,7 @@ void basic_dim(basic_line_t* line, basic_err_t* err, basic_out_fn_t outfn)
     uint32_t dims[BASIC_MAX_DIMS];
     uint32_t varidx, dimcnt, varnameidx ;
     const char *varname ;
-    int index = 1;
+    uint32_t index = 1;
 
     while (index < line->count_) {
         varnameidx = getU32(line, index) ;
@@ -1514,6 +1565,17 @@ void basic_dim(basic_line_t* line, basic_err_t* err, basic_out_fn_t outfn)
 
         for (uint32_t i = 0; i < dimcnt; i++) {
             dims[i] = getU32(line, index);
+
+            basic_value_t *v = basic_expr_eval(dims[i], 0, NULL, NULL, err) ;
+            if (v == NULL)
+                return ;
+
+            if (v->type_ != BASIC_VALUE_TYPE_NUMBER) {
+                *err = BASIC_ERR_TYPE_MISMATCH ;
+                return ;
+            }
+
+            dims[i] = (int)v->value.nvalue_ ;
             index += 4;
         }
 
@@ -1771,11 +1833,11 @@ static void exec_one_statement(basic_line_t *line, exec_context_t *current, exec
         int stmt = stmtNumber(current->line_, line) ;
         if (stmt == 0) 
         {
-            sprintf(trbuf, "[%d]", current->line_->lineno_);
+            sprintf(trbuf, "[%ld]", current->line_->lineno_);
         }
         else
         {
-            sprintf(trbuf, "[%d:%d]", current->line_->lineno_, stmt) ;
+            sprintf(trbuf, "[%ld:%d]", current->line_->lineno_, stmt) ;
         }
 
         (outfn)(trbuf, strlen(trbuf)) ;
@@ -1847,6 +1909,10 @@ static void exec_one_statement(basic_line_t *line, exec_context_t *current, exec
 
         case BTOKEN_VARS:
             basic_vars(line, err, outfn) ;
+            break ;
+
+        case BTOKEN_MEM:
+            basic_mem(line, err, outfn) ;
             break ;
 
         case BTOKEN_INPUT:
@@ -1946,11 +2012,15 @@ int basic_exec_line(exec_context_t *context, basic_out_fn_t outfn)
         if (code != BASIC_ERR_NONE) {
             if (toexec->lineno_ != -1) 
             {
-                sprintf(tbuf, "Program failed: line %d: error code %d\n", toexec->lineno_, code) ;
+                sprintf(tbuf, "Program failed: line %ld: error code %d: %s\n", toexec->lineno_, code, basic_err_to_string(code)) ;
+            }
+            else if (toexec->tokens_[0] != BTOKEN_LOAD && toexec->tokens_[0] != BTOKEN_RUN)
+            {
+                sprintf(tbuf, "Command failed: error code %d: %s\n", code, basic_err_to_string(code)) ;
             }
             else 
             {
-                sprintf(tbuf, "Command failed: error code %d\n", code) ;
+                strcpy(tbuf, "") ;
             }
             (*outfn)(tbuf, strlen(tbuf)) ;
             break ;

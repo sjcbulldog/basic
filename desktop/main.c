@@ -1,3 +1,9 @@
+#ifdef DESKTOP
+#define _CRTDBG_MAP_ALLOC
+#include <stdlib.h>
+#include <crtdbg.h>
+#endif
+
 #include <stdio.h>
 #include <cy_result.h>
 #include "basicexec.h"
@@ -27,7 +33,7 @@ bool basic_proc_load(const char *fname, basic_err_t *err, basic_out_fn_t outfn)
     }
 
     while (fgets(buffer, sizeof(buffer), fp) != NULL) {
-        if (!basic_line_proc(buffer, infn, outfn)) {
+        if (!basic_line_proc(buffer, outfn)) {
             basic_clear(NULL, err, outfn) ;
             return false ;
         }
@@ -35,6 +41,14 @@ bool basic_proc_load(const char *fname, basic_err_t *err, basic_out_fn_t outfn)
 
     fclose(fp) ;
     return true;
+}
+
+void basic_del(basic_line_t* line, basic_err_t* err, basic_out_fn_t outfn)
+{
+}
+
+void basic_rename(basic_line_t* line, basic_err_t* err, basic_out_fn_t outfn)
+{
 }
 
 void basic_save(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
@@ -48,7 +62,7 @@ void basic_save(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
     }    
 
     uint32_t expr = getU32(line, 1);
-    basic_value_t *value = basic_expr_eval(expr, err) ;
+    basic_value_t *value = basic_expr_eval(expr, 0, NULL, NULL, err) ;
     if (value == NULL)
         return ;
 
@@ -101,7 +115,7 @@ void basic_load(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
     }
 
     uint32_t expr = getU32(line, 1);
-    basic_value_t *value = basic_expr_eval(expr, err) ;
+    basic_value_t *value = basic_expr_eval(expr, 0, NULL, NULL, err) ;
     if (value == NULL)
         return ;
 
@@ -118,18 +132,32 @@ void basic_flist(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
 }
 
-static cy_rslt_t outfn(const char *text, int size)
+static cy_rslt_t outfn(const char *text, size_t size)
 {
     fwrite(text, 1, size, stdout) ;
 
     return 0;
 }
 
-static char inbuf[512] ;
+static char inbuf[512];
+
+const char* basic_task_get_line()
+{
+    fgets(inbuf, sizeof(inbuf), stdin);
+    return inbuf;
+}
+
+void basic_task_store_input(bool b)
+{
+}
+
+
 int main(int ac, char **av)
 {
     ac-- ;
     av++ ;
+
+    _crtBreakAlloc = 105;
 
     FILE *f = fopen(*av, "r") ;
     if (f == NULL) {
@@ -147,5 +175,8 @@ int main(int ac, char **av)
     }
 
     fclose(f) ;
+
+    _CrtDumpMemoryLeaks();
+
     return 0 ;
 }

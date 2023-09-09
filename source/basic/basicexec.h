@@ -3,6 +3,7 @@
 #include "basicline.h"
 #include "basicerr.h"
 #include "basicproc.h"
+#include <memory.h>
 
 int basic_exec_line(exec_context_t *ctx, basic_out_fn_t outfn) ;
 void basic_store_line(basic_line_t *line) ;
@@ -25,11 +26,7 @@ static inline uint32_t getU32(basic_line_t *line, int index)
 static inline double getDouble(basic_line_t *line, int index)
 {
     double value ;
-    uint8_t *ptr = (uint8_t *)&value ;
 
-    for(int i = 0 ;i < sizeof(double) ; i++) {
-        *ptr++ = line->tokens_[index++] ;
-    }
-
+    memcpy(&value, &line->tokens_[index], sizeof(double)) ;
     return value ;
 }

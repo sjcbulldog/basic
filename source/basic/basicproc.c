@@ -1,3 +1,9 @@
+#ifdef DESKTOP
+#define _CRTDBG_MAP_ALLOC
+#include <stdlib.h>
+#include <crtdbg.h>
+#endif
+
 #include "basicproc.h"
 #include "basicerr.h"
 #include "basicline.h"
@@ -16,6 +22,7 @@
 #include <ff.h>
 #define _stricmp strcasecmp
 #define _strdup strdup
+#define _strnicmp strncasecmp
 #endif
 
 static const char *prompt = "Basic06> ";
@@ -53,6 +60,7 @@ token_table_t tokens[] =
     { BTOKEN_TRON, "TRON"},
     { BTOKEN_TROFF, "TROFF"},
     { BTOKEN_VARS, "VARS"},
+    { BTOKEN_MEM, "MEM"},
     { BTOKEN_DATA, "DATA"},
     { BTOKEN_READ, "READ"},
     { BTOKEN_RESTORE, "RESTORE"},
@@ -67,13 +75,13 @@ token_table_t tokens[] =
 
 static char linebuf[256] ;
 static char other[256] ;
-static char msg[128];
+static char msg[256];
 
 bool basic_is_keyword(const char *line)
 {
     for(int i = 0 ; i < sizeof(tokens)/sizeof(tokens[0]) ; i++) {
-        int len = strlen(tokens[i].str_) ;
-        if (strncasecmp(line, tokens[i].str_, len) == 0) {
+        size_t len = strlen(tokens[i].str_) ;
+        if (_strnicmp(line, tokens[i].str_, len) == 0) {
             return true ;
         }
     }
@@ -122,7 +130,12 @@ void basic_destroy_line(basic_line_t *line)
 
                     uint32_t dimcnt = getU32(line, index) ;
                     index += 4 ;
-                    index += dimcnt * 4 ;
+
+                    for(uint32_t i = 0 ; i < dimcnt ; i++) {
+                        uint32_t expridx = getU32(line, index) ;
+                        basic_expr_destroy(expridx) ;
+                        index += 4 ;
+                    }
                 }
             }
             break;
@@ -139,7 +152,7 @@ void basic_destroy_line(basic_line_t *line)
 
             case BTOKEN_LET_ARRAY:
             {
-                int index = 1;
+                uint32_t index = 1;
 
                 basic_str_destroy(getU32(line, index)) ;
                 index += 4 ;
@@ -158,7 +171,7 @@ void basic_destroy_line(basic_line_t *line)
 
             case BTOKEN_PRINT:
             {
-                int index = 1;
+                uint32_t index = 1;
                 while (index < line->count_) {
                     index++ ;
 
@@ -178,7 +191,7 @@ void basic_destroy_line(basic_line_t *line)
             case BTOKEN_READ:
             {
                 uint8_t token ;
-                int index = 1;
+                uint32_t index = 1;
                 while (index < line->count_) {
                     token = line->tokens_[index++] ;
                     uint32_t stridx = getU32(line, index);
@@ -190,7 +203,7 @@ void basic_destroy_line(basic_line_t *line)
                         uint32_t dimcnt = getU32(line, index) ;
                         index+= 4 ;
 
-                        for(int i = 0 ; i < dimcnt ; i++)
+                        for(uint32_t i = 0 ; i < dimcnt ; i++)
                         {
                             uint32_t expridx = getU32(line, index) ;
                             index += 4 ;
@@ -204,7 +217,7 @@ void basic_destroy_line(basic_line_t *line)
 
             case BTOKEN_DATA:
             {
-                int index = 1;
+                uint32_t index = 1;
                 while (index < line->count_) {
                     uint8_t token = line->tokens_[index++] ;
                     uint32_t value = getU32(line, index) ;
@@ -229,7 +242,7 @@ void basic_destroy_line(basic_line_t *line)
             case BTOKEN_INPUT:
             {
                 uint32_t strh ;
-                int index = 2 ;
+                uint32_t index = 2 ;
 
                 while (index < line->count_) {
                     strh = getU32(line, index) ;
@@ -258,6 +271,7 @@ void basic_destroy_line(basic_line_t *line)
             case BTOKEN_TRON:
             case BTOKEN_TROFF:
             case BTOKEN_RESTORE:
+            case BTOKEN_MEM:
                 break;
 
             case BTOKEN_DEL:
@@ -285,7 +299,7 @@ void basic_destroy_line(basic_line_t *line)
 
             case BTOKEN_NEXT:
                 {
-                    int index = 1 ;
+                    uint32_t index = 1 ;
                     while (index < line->count_) {
                         uint32_t varh = getU32(line, index) ;
                         index += 4 ;
@@ -356,7 +370,6 @@ static bool add_uint32(basic_line_t *line, uint32_t value)
     return true ;    
 }
 
-
 static bool add_double(basic_line_t *line, double value)
 {
     if (line->count_ == 0) {
@@ -371,10 +384,8 @@ static bool add_double(basic_line_t *line, double value)
     if (line->tokens_ == NULL)
         return false ;
 
-    uint8_t *ptr = (uint8_t *)&value ;
-
-    for(int i = 0 ; i < sizeof(double) ; i++)
-        line->tokens_[line->count_++] = *ptr++ ;
+    memcpy(&line->tokens_[line->count_], &value, sizeof(double)) ;
+    line->count_ += sizeof(double) ;
 
     return true ;    
 }
@@ -385,8 +396,8 @@ static const char *parse_keyword(const char *line, uint8_t *token, basic_err_t *
     line = skipSpaces(line) ;
 
     for(int i = 0 ; i < sizeof(tokens)/sizeof(tokens[0]) ; i++) {
-        int len = strlen(tokens[i].str_) ;
-        if (strncasecmp(line, tokens[i].str_, len) == 0) {
+        size_t len = strlen(tokens[i].str_) ;
+        if (_strnicmp(line, tokens[i].str_, len) == 0) {
             *token = tokens[i].token_ ;
             return line + len ;
         }
@@ -602,7 +613,7 @@ static const char *parse_add_var_name(basic_line_t *bline, const char *line, bas
             return NULL;
         }
 
-        for(int i = 0 ; i < dimcnt ; i++) {
+        for(uint32_t i = 0 ; i < dimcnt ; i++) {
             if (!add_uint32(bline, dims[i])) {
                 *err = BASIC_ERR_OUT_OF_MEMORY ;
                 return NULL ;
@@ -724,7 +735,7 @@ static const char *parse_print(basic_line_t *bline, const char *line, basic_err_
         if (*line == '\0' || *line == ':')
             break ;
 
-        if (strncasecmp(line, "tab", 3) == 0) 
+        if (_strnicmp(line, "tab", 3) == 0)
         {
             line += 3 ;
             if (*line != '(') {
@@ -792,8 +803,10 @@ static const char *parse_print(basic_line_t *bline, const char *line, basic_err_
             }
         }
         else {
-            *err = BASIC_ERR_EXTRA_CHARS ;
-            return NULL ;
+            if (!add_token(bline, BTOKEN_SEMICOLON)) {
+                *err = BASIC_ERR_OUT_OF_MEMORY ;
+                return NULL ;        
+            }
         }
     }
 
@@ -802,7 +815,7 @@ static const char *parse_print(basic_line_t *bline, const char *line, basic_err_
 
 static const char *parse_input(basic_line_t *bline, const char *line, basic_err_t *err)
 {
-    int index = 1 ;
+    uint32_t index = 1 ;
     int cntstr = 0 ;
     uint32_t v ;
 
@@ -996,7 +1009,7 @@ static const char *parse_dim(basic_line_t *bline, const char *line, basic_err_t 
             return NULL ;
         }
 
-        line = basic_expr_parse_dims_const(line, &dimcnt, dims, err);
+        line = basic_expr_parse_dims_expr(line, &dimcnt, dims, err);
         if (line == NULL)
             return NULL;
 
@@ -1307,7 +1320,7 @@ static const char* tokenize_one(const char* line, basic_line_t *prev, basic_line
         }
         else if (token == BTOKEN_CLEAR || token == BTOKEN_CLS || token == BTOKEN_RUN || token == BTOKEN_END ||
                 token == BTOKEN_THEN || token == BTOKEN_FLIST || token == BTOKEN_RETURN || token == BTOKEN_RESTORE ||
-                token == BTOKEN_STOP || token == BTOKEN_TRON || token == BTOKEN_TROFF)
+                token == BTOKEN_STOP || token == BTOKEN_TRON || token == BTOKEN_TROFF || token == BTOKEN_MEM)
         {
             line = skipSpaces(line);
             if (*line != '\0' && *line != ':') {
@@ -1469,12 +1482,13 @@ bool basic_line_proc(const char *line, basic_out_fn_t outfn)
     if (code != BASIC_ERR_NONE) {
         int len = (int)strlen(line) ;
 
-        (*outfn)("Line: '", 7) ;
+        while (len > 0 && isspace((uint8_t)line[len - 1]))
+            len-- ;
+
         (*outfn)(line, len - 1);
         (*outfn)("'\n", 2);
-
-        sprintf(msg, "Error code %d\n", code) ;
-        (*outfn)(msg, (int)strlen(msg)) ;
+        sprintf(msg, "Error %d: %s\n", code, basic_err_to_string(code)) ;
+        (*outfn)(msg, strlen(msg)) ;
 
         return false ;
     }
@@ -1511,8 +1525,12 @@ static int read_line(FIL *fp)
 
     while (true) {
         if (got == 0) {
-            if (f_eof(fp))
+            if (f_eof(fp)) {
+                if (oindex != 0)
+                    return 1 ;
+
                 return 0 ;
+            }
                 
             //
             // We need more characters, but buffer is empty

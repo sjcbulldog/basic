@@ -24,7 +24,8 @@ typedef enum operator_type {
     BASIC_OPERATOR_LESS = 10,
     BASIC_OPERATOR_LESS_EQ = 11,
     BASIC_OPERATOR_OR = 12,
-    BASIC_OPERATOR_AND = 13,    
+    BASIC_OPERATOR_AND = 13,
+    BASIC_OPERATOR_UNARY_MINUS = 14,
 } operator_type_t ;
 
 typedef struct operator_table
@@ -32,6 +33,7 @@ typedef struct operator_table
     operator_type_t oper_ ;
     const char *string_ ;
     int prec_ ;
+    bool unary ;
 } operator_table_t ;
 
 typedef struct basic_operand basic_operand_t ;
@@ -76,6 +78,7 @@ typedef struct basic_function_args
 typedef struct user_function_args
 {
     basic_expr_user_fn_t* func_;
+    uint32_t argcnt_;
     basic_operand_t** args_;
 } user_function_args_t ;
 
@@ -109,7 +112,6 @@ typedef struct basic_expr
     basic_operand_t *top_ ;
     uint32_t index_ ;
     struct basic_expr *next_ ;
-    uint32_t serial_ ;
 } basic_expr_t ;
 
 typedef struct expr_ctxt

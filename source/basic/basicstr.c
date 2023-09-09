@@ -1,3 +1,9 @@
+#ifdef DESKTOP
+#define _CRTDBG_MAP_ALLOC
+#include <stdlib.h>
+#include <crtdbg.h>
+#endif
+
 #include "basicstr.h"
 #include <stdbool.h>
 #include <stdio.h>
@@ -26,6 +32,7 @@ uint32_t basic_str_create_str(const char *strval)
 {
     for(one_string_t *one = string_table ; one != NULL ; one = one->next_) {
         if (one->string_ != NULL && strcmp(one->string_, strval) == 0 && one->frozen_) {
+            one->ref_cnt_++;
             return (uint32_t)one ;
         }
     }
@@ -36,7 +43,7 @@ uint32_t basic_str_create_str(const char *strval)
 
     str->next_ = string_table ;
     str->string_ = _strdup(strval) ;
-    str->allocated_ = strlen(strval) + 1 ;
+    str->allocated_ = (uint32_t)strlen(strval) + 1 ;
     str->frozen_ = true ;
     str->ref_cnt_ = 1 ;
     string_table = str ;
@@ -119,7 +126,7 @@ extern bool basic_str_add_str(uint32_t h, const char *str)
     one_string_t *one = (one_string_t *)h ;
 
     assert(one->frozen_ == false) ;
-    uint32_t needed = (one->string_ ? strlen(one->string_) : 0) + strlen(str) + 1 ;
+    uint32_t needed = (uint32_t)((one->string_ ? strlen(one->string_) : 0) + strlen(str) + 1);
     if (needed > one->allocated_) {
         int size = needed / MY_STR_BLOCK_SIZE ;
         if ((needed % MY_STR_BLOCK_SIZE) != 0)
@@ -178,7 +185,7 @@ uint32_t basic_str_memsize(bool overhead)
             ret += sizeof(one_string_t) ;
         }
         else {
-            ret += strlen(t->string_) + 1 ;
+            ret += (uint32_t)strlen(t->string_) + 1 ;
         }
     }
 

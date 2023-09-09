@@ -1,6 +1,7 @@
 #pragma once
 
 
+
 // 
 // Error codes
 //
@@ -58,3 +59,5 @@ typedef enum basic_err {
     BASIC_ERR_NO_DATA,
 
 } basic_err_t ;
+
+const char *basic_err_to_string(basic_err_t err) ;

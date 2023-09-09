@@ -164,7 +164,7 @@ void basic_flist(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     DIR dp ;
     FILINFO info ;
-    const int tabno = 16 ;
+    const int tabno = 32 ;
     char outline[64], num[12] ;
 
     *err = BASIC_ERR_NONE ;    
@@ -181,9 +181,9 @@ void basic_flist(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
         return ;
     }
 
-    strcpy(outline, "FileName        Size\n");
+    strcpy(outline, "FileName                        Size\n");
     (*outfn)(outline, strlen(outline));
-    strcpy(outline, "============================\n") ;
+    strcpy(outline, "========================================\n") ;
     (*outfn)(outline, strlen(outline));
 
     const char *name ;

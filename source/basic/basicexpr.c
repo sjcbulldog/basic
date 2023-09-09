@@ -1,3 +1,9 @@
+#ifdef DESKTOP
+#define _CRTDBG_MAP_ALLOC
+#include <stdlib.h>
+#include <crtdbg.h>
+#endif
+
 #include "basicexpr.h"
 #include "basicexprint.h"
 #include "basiccfg.h"
@@ -23,6 +29,7 @@ static basic_expr_user_fn_t* get_user_fn_from_name(const char *name) ;
 static basic_value_t *eval_node(basic_operand_t *op, int cntv, char **names, basic_value_t **values, basic_err_t *err) ;
 static const char* parse_operand_top(const char* line, int argcntg, char **argnames, basic_operand_t** ret, basic_err_t* err);
 static bool basic_operand_to_string(basic_operand_t* parent, basic_operand_t* oper, uint32_t str);
+static basic_operand_t *createOperator(operator_table_t *t) ;
 
 static uint32_t next_var_index = 1 ;
 static basic_var_t *vars = NULL ;
@@ -35,19 +42,20 @@ static basic_expr_user_fn_t* userfns = NULL;
 
 operator_table_t operators[] = 
 {
-    { BASIC_OPERATOR_PLUS, "+" , 4},
-    { BASIC_OPERATOR_MINUS, "-", 4 },
-    { BASIC_OPERATOR_TIMES, "*", 3 },
-    { BASIC_OPERATOR_DIVIDE, "/", 3 },
-    { BASIC_OPERATOR_POWER, "^", 2 },
-    { BASIC_OPERATOR_NOT_EQUAL, "<>", 5},
-    { BASIC_OPERATOR_EQUAL, "=", 5 },
-    { BASIC_OPERATOR_GREATER_EQ, ">=", 5 },
-    { BASIC_OPERATOR_GREATER, ">", 5 },
-    { BASIC_OPERATOR_LESS_EQ, "<=", 5 },
-    { BASIC_OPERATOR_LESS, "<", 5 },
-    { BASIC_OPERATOR_OR, "OR", 6 },
-    { BASIC_OPERATOR_AND, "AND", 6 },
+    { BASIC_OPERATOR_PLUS, "+" , 4, false},
+    { BASIC_OPERATOR_MINUS, "-", 4, false },
+    { BASIC_OPERATOR_TIMES, "*", 3, false },
+    { BASIC_OPERATOR_DIVIDE, "/", 3, false },
+    { BASIC_OPERATOR_POWER, "^", 2, false },
+    { BASIC_OPERATOR_NOT_EQUAL, "<>", 5, false},
+    { BASIC_OPERATOR_EQUAL, "=", 5 , false},
+    { BASIC_OPERATOR_GREATER_EQ, ">=", 5 , false},
+    { BASIC_OPERATOR_GREATER, ">", 5 , false},
+    { BASIC_OPERATOR_LESS_EQ, "<=", 5 , false},
+    { BASIC_OPERATOR_LESS, "<", 5 , false},
+    { BASIC_OPERATOR_OR, "OR", 6 , false},
+    { BASIC_OPERATOR_AND, "AND", 6 , false},
+    { BASIC_OPERATOR_UNARY_MINUS, "", -1 , true},
 } ;
 
 static basic_value_t* func_int(int count, basic_value_t** args, basic_err_t *err);
@@ -60,6 +68,8 @@ static basic_value_t *func_mid(int count, basic_value_t**args, basic_err_t *err)
 static basic_value_t *func_len(int count, basic_value_t**args, basic_err_t *err) ;
 static basic_value_t *func_str(int count, basic_value_t**args, basic_err_t *err) ;
 static basic_value_t *func_abs(int count, basic_value_t**args, basic_err_t *err) ;
+static basic_value_t *func_chr(int count, basic_value_t**args, basic_err_t *err) ;
+static basic_value_t *func_exp(int count, basic_value_t** args, basic_err_t *err) ;
 
 function_table_t functions[] =
 {
@@ -74,8 +84,20 @@ function_table_t functions[] =
     { 1, "LEN", func_len},
     { 1, "STR$", func_str},
     { 1, "ABS", func_abs},
+    { 1, "CHR$", func_chr},
+    { 1, "EXP", func_exp},
 };
 
+
+static operator_table_t *operator_by_type(operator_type_t type)
+{
+    for(int i = 0 ; i < sizeof(operators) / sizeof(operators[0]) ; i++) {
+        if (operators[i].oper_ == type)
+            return &operators[i] ;
+    }
+
+    return NULL ;    
+}
 
 static void dump_expr_stack(const char *title)
 {
@@ -841,7 +863,8 @@ static void basic_destroy_operand(basic_operand_t *operand)
 
         case BASIC_OPERAND_TYPE_OPERATOR:
             basic_destroy_operand(operand->operand_.operator_.left_) ;
-            basic_destroy_operand(operand->operand_.operator_.right_) ;
+            if (operand->operand_.operator_.operator_->oper_ != BASIC_OPERATOR_UNARY_MINUS)
+                basic_destroy_operand(operand->operand_.operator_.right_) ;
             break ;
 
         case BASIC_OPERAND_TYPE_VAR:
@@ -861,7 +884,7 @@ static void basic_destroy_operand(basic_operand_t *operand)
             break;
 
         case BASIC_OPERAND_TYPE_USERFN:
-            for (int i = 0; i < operand->operand_.userfn_.func_->argcnt_; i++) {
+            for (uint32_t i = 0; i < operand->operand_.userfn_.argcnt_; i++) {
                 basic_destroy_operand(operand->operand_.userfn_.args_[i]);
             }
             free(operand->operand_.userfn_.args_);
@@ -874,9 +897,10 @@ static void basic_destroy_operand(basic_operand_t *operand)
             assert(false) ;
             break ;        
     }
+
+    free(operand);
 }
 
-static uint32_t sval = 0 ;
 static bool create_expr(basic_operand_t *operand, uint32_t *index, basic_err_t *err)
 {
     dump_expr_stack("before create_expr") ;
@@ -890,7 +914,6 @@ static bool create_expr(basic_operand_t *operand, uint32_t *index, basic_err_t *
     expr->index_ = next_expr_index++ ;
     expr->top_ = operand ;
     expr->next_ = exprs ;
-    expr->serial_ = sval++ ;
     exprs = expr ;
     *index = expr->index_ ;
 
@@ -959,13 +982,14 @@ static basic_operand_t* create_userfn_operand(basic_expr_user_fn_t *ufn)
 
     ret->type_ = BASIC_OPERAND_TYPE_USERFN;
     ret->operand_.userfn_.func_ = ufn ;
+    ret->operand_.userfn_.argcnt_ = ufn->argcnt_;
     ret->operand_.userfn_.args_ = (basic_operand_t**)malloc(sizeof(basic_operand_t*) * ufn->argcnt_);
     if (ret->operand_.userfn_.args_ == NULL) {
         free(ret);
         return NULL;
     }
 
-    memset(ret->operand_.function_.args_, 0, sizeof(basic_operand_t*) * ufn->argcnt_);
+    memset(ret->operand_.userfn_.args_, 0, sizeof(basic_operand_t*) * ufn->argcnt_);
     return ret;
 }
 
@@ -1010,6 +1034,7 @@ static basic_value_t *func_mem(int count, basic_value_t **args, basic_err_t *err
         return NULL ;
     }
 
+#ifndef DESKTOP
     struct mallinfo mall_info = mallinfo();
 
     extern uint8_t __HeapBase;  /* Symbol exported by the linker. */
@@ -1018,8 +1043,11 @@ static basic_value_t *func_mem(int count, basic_value_t **args, basic_err_t *err
     uint8_t* heap_base = (uint8_t *)&__HeapBase;
     uint8_t* heap_limit = (uint8_t *)&__HeapLimit;
     uint32_t heap_size = (uint32_t)(heap_limit - heap_base);    
+#endif
 
     int ret = 0 ;
+
+#ifndef DESKTOP
     switch(mtype)
     {
         case 1:
@@ -1038,6 +1066,7 @@ static basic_value_t *func_mem(int count, basic_value_t **args, basic_err_t *err
             ret = basic_str_memsize(true) ;
             break ;            
     }
+#endif
 
     basic_value_t *v = basic_create_number_value(ret);
     if (v == NULL) {
@@ -1119,6 +1148,22 @@ static basic_value_t* func_sqrt(int count, basic_value_t** args, basic_err_t *er
     return basic_create_number_value(sqrt(v->value.nvalue_)) ;
 }
 
+static basic_value_t* func_exp(int count, basic_value_t** args, basic_err_t *err)
+{
+    if (count != 1) {
+        *err = BASIC_ERR_BAD_ARG_COUNT;
+        return NULL;
+    }
+
+    basic_value_t* v = args[0];
+    if (v->type_ != BASIC_VALUE_TYPE_NUMBER) {
+        *err = BASIC_ERR_TYPE_MISMATCH;
+        return NULL;
+    }
+
+    return basic_create_number_value(exp(v->value.nvalue_)) ;
+}
+
 static basic_value_t* func_left(int count, basic_value_t** args, basic_err_t *err)
 {
     if (count != 2) {
@@ -1138,7 +1183,7 @@ static basic_value_t* func_left(int count, basic_value_t** args, basic_err_t *er
         return NULL;
     }
 
-    int nlen = len->value.nvalue_ ;
+    int nlen = (int)len->value.nvalue_ ;
     char *strv = (char *)malloc(nlen + 1) ;
     if (strv == NULL) {
         *err = BASIC_ERR_OUT_OF_MEMORY ;
@@ -1176,14 +1221,14 @@ static basic_value_t* func_right(int count, basic_value_t** args, basic_err_t *e
         return NULL;
     }
 
-    int nlen = len->value.nvalue_ ;
+    int nlen = (int)len->value.nvalue_ ;
     char *strv = (char *)malloc(nlen + 1) ;
     if (strv == NULL) {
         *err = BASIC_ERR_OUT_OF_MEMORY ;
         return NULL ;
     }
 
-    int slen = strlen(str->value.svalue_) ;
+    int slen = (int)strlen(str->value.svalue_) ;
     if (nlen > slen) 
     {
         strcpy(strv, str->value.svalue_); 
@@ -1221,14 +1266,14 @@ static basic_value_t* func_mid(int count, basic_value_t** args, basic_err_t *err
         *err = BASIC_ERR_TYPE_MISMATCH;
         return NULL;
     }
-    int npos = pos->value.nvalue_ - 1;
+    int npos = (int)pos->value.nvalue_ - 1;
 
     basic_value_t* len = args[2] ;
     if (len->type_ != BASIC_VALUE_TYPE_NUMBER) {
         *err = BASIC_ERR_TYPE_MISMATCH;
         return NULL;
     }
-    int nlen = len->value.nvalue_ ;
+    int nlen = (int)len->value.nvalue_ ;
 
     char *strv = (char *)malloc(nlen + 1) ;
     if (strv == NULL) {
@@ -1236,7 +1281,7 @@ static basic_value_t* func_mid(int count, basic_value_t** args, basic_err_t *err
         return NULL ;
     }
 
-    int slen = strlen(str->value.svalue_) ;
+    int slen = (int)strlen(str->value.svalue_) ;
 
     if (npos > slen) 
     {
@@ -1276,7 +1321,7 @@ static basic_value_t* func_len(int count, basic_value_t** args, basic_err_t *err
         return NULL;
     }
 
-    return basic_create_number_value(strlen(str->value.svalue_)) ;
+    return basic_create_number_value((double)(strlen(str->value.svalue_))) ;
 }
 
 static basic_value_t* func_str(int count, basic_value_t** args, basic_err_t *err)
@@ -1323,6 +1368,39 @@ static basic_value_t* func_abs(int count, basic_value_t** args, basic_err_t *err
     return basic_create_number_value(fabs(v->value.nvalue_)) ;
 }
 
+static basic_value_t* func_chr(int count, basic_value_t** args, basic_err_t *err)
+{
+    char buf[2] ;
+
+    if (count != 1) {
+        *err = BASIC_ERR_BAD_ARG_COUNT;
+        return NULL;
+    }
+
+    basic_value_t* v = args[0];
+    if (v->type_ != BASIC_VALUE_TYPE_NUMBER) {
+        *err = BASIC_ERR_TYPE_MISMATCH;
+        return NULL;
+    }
+
+    int n = (int)v->value.nvalue_ ;
+    if (n < 0 || n > 255) 
+    {
+        *err = BASIC_ERR_INVALID_ARG_VALUE ;
+        return NULL ;
+    }
+
+    buf[0] = n ;
+    buf[1] = 0 ;
+
+    basic_value_t *ret = basic_create_string_value(buf) ;
+    if (ret == NULL) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+    }
+
+    return ret;
+}
+
 static int match_def_local(expr_ctxt_t *ctxt)
 {
     if (ctxt->argcnt_ > 0) {
@@ -1340,6 +1418,9 @@ static const char *parse_operand(expr_ctxt_t *ctxt, const char *line, basic_oper
     int bind = 0 ;
     int localv = 0 ;
 
+    while (*line == '+')
+        line++ ;
+
     line = skipSpaces(line);
     if (*line == '(') {
         line++;
@@ -1354,7 +1435,24 @@ static const char *parse_operand(expr_ctxt_t *ctxt, const char *line, basic_oper
         }
         line++;
     }
-    else if (isdigit((uint8_t)*line) || *line == '-' || *line == '+' || *line == '.') {
+    else if (*line == '-') {
+        line++ ;
+
+        //
+        // Unary minus sign
+        //
+        basic_operand_t *op ;
+        line = parse_operand_top(line, ctxt->argcnt_, ctxt->argnames_, &op, err);
+        if (line == NULL)
+            return line ;
+
+        operator_table_t *oper = operator_by_type(BASIC_OPERATOR_UNARY_MINUS) ;
+        basic_operand_t *opt = createOperator(oper) ;
+        opt->operand_.operator_.left_ = op ;
+
+        *operand = opt ;
+    }
+    else if (isdigit((uint8_t)*line) || *line == '.') {
 
         bool odd = false ;
         while ((*line == '-' || *line == '+') && bind < sizeof(ctxt->parsebuffer)) {
@@ -1516,7 +1614,7 @@ static const char *parse_operand(expr_ctxt_t *ctxt, const char *line, basic_oper
                     return NULL;
                 }
 
-                for (int i = 0; i < ufn->argcnt_; i++) {
+                for (uint32_t i = 0; i < ufn->argcnt_; i++) {
                     if (i != 0) {
                         line = skipSpaces(line) ;
                         if (*line != ',') {
@@ -1572,11 +1670,12 @@ static const char *parse_operand(expr_ctxt_t *ctxt, const char *line, basic_oper
     return line ;
 }
 
+
 static const char *parse_operator(const char *line, operator_table_t **oper, basic_err_t *err)
 {
     line = skipSpaces(line) ;
     for(int i = 0 ; i < sizeof(operators) / sizeof(operators[0]) ; i++) {
-        if (strncmp(line, operators[i].string_, strlen(operators[i].string_)) == 0) {
+        if (operators[i].unary == false && strncmp(line, operators[i].string_, strlen(operators[i].string_)) == 0) {
             *oper = &operators[i] ;
             *err = BASIC_ERR_NONE ;
             return line + strlen(operators[i].string_) ;
@@ -1629,37 +1728,46 @@ static bool basic_operand_to_string(basic_operand_t *parent, basic_operand_t *op
 
         case BASIC_OPERAND_TYPE_OPERATOR:
             {
-                bool parens = false ;
-
-                assert(parent == NULL || parent->type_ == BASIC_OPERAND_TYPE_OPERATOR);
-                if (parent != NULL && parent->operand_.operator_.operator_->prec_ < oper->operand_.operator_.operator_->prec_) {
-                    if (!basic_str_add_str(str, "("))
+                if (oper->operand_.operator_.operator_->oper_ == BASIC_OPERATOR_UNARY_MINUS)
+                {
+                    if (!basic_str_add_str(str, "-"))
                         ret = false ;
-                    parens = true ;
-                }
-
-                if (ret && !basic_operand_to_string(oper, oper->operand_.operator_.left_, str))
-                    ret = false ;
-
-                if (ret) {
-                    if (!basic_str_add_str(str, " "))
-                        ret = false ;
-
-                    if (!basic_str_add_str(str, oper->operand_.operator_.operator_->string_))
-                        ret = false ;
-
-                    if (!basic_str_add_str(str, " "))
-                        ret = false ;                        
-                }
-
-                if (ret) {
-                    if (!basic_operand_to_string(oper, oper->operand_.operator_.right_, str))
+                    if (ret && !basic_operand_to_string(oper, oper->operand_.operator_.left_, str))
                         ret = false ;
                 }
+                else
+                {
+                    bool parens = false ;
+                    assert(parent == NULL || parent->type_ == BASIC_OPERAND_TYPE_OPERATOR);
+                    if (parent != NULL && parent->operand_.operator_.operator_->prec_ < oper->operand_.operator_.operator_->prec_) {
+                        if (!basic_str_add_str(str, "("))
+                            ret = false ;
+                        parens = true ;
+                    }
 
-                if (parens) {
-                    if (!basic_str_add_str(str, ")"))
-                        ret = false ;   
+                    if (ret && !basic_operand_to_string(oper, oper->operand_.operator_.left_, str))
+                        ret = false ;
+
+                    if (ret) {
+                        if (!basic_str_add_str(str, " "))
+                            ret = false ;
+
+                        if (!basic_str_add_str(str, oper->operand_.operator_.operator_->string_))
+                            ret = false ;
+
+                        if (!basic_str_add_str(str, " "))
+                            ret = false ;                        
+                    }
+
+                    if (ret) {
+                        if (!basic_operand_to_string(oper, oper->operand_.operator_.right_, str))
+                            ret = false ;
+                    }
+
+                    if (parens) {
+                        if (!basic_str_add_str(str, ")"))
+                            ret = false ;   
+                    }
                 }
             }
             break;
@@ -1754,6 +1862,8 @@ static basic_operand_t *createOperator(operator_table_t *t)
 
     ret->type_ = BASIC_OPERAND_TYPE_OPERATOR ;
     ret->operand_.operator_.operator_ = t ;
+    ret->operand_.operator_.left_ = NULL ;
+    ret->operand_.operator_.right_ = NULL ;
     return ret;
 }
 
@@ -1970,6 +2080,24 @@ static basic_value_t *eval_plus(basic_value_t *left, basic_value_t *right, basic
     }
 
     return ret;
+}
+
+static basic_value_t *eval_unary_minus(basic_value_t *left, basic_err_t *err)
+{
+    basic_value_t *ret ;
+
+    if (left->type_ != BASIC_VALUE_TYPE_NUMBER) {
+        *err = BASIC_ERR_TYPE_MISMATCH ;
+        return NULL ;
+    }
+
+    ret = basic_create_number_value(-left->value.nvalue_);
+
+    if (ret == NULL) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+    }
+
+    return ret;    
 }
 
 static basic_value_t *eval_minus(basic_value_t *left, basic_value_t *right, basic_err_t *err)
@@ -2222,21 +2350,46 @@ static basic_value_t *eval_and(basic_value_t *left, basic_value_t *right, basic_
     return ret;
 }
 
-static basic_value_t *eval_operator(operator_table_t *oper, int vcnt, char **names, basic_value_t **values, basic_operand_t *left, basic_operand_t *right, basic_err_t *err)
+static basic_value_t *eval_unary_operator(operator_table_t *oper, int vcnt, char **names, basic_value_t **values, basic_operand_t *left, basic_err_t *err)
 {
     basic_value_t* ret = NULL;
+    basic_value_t *leftval ;
 
-    basic_value_t *leftval = eval_node(left,  vcnt, names, values, err) ;
+    leftval = eval_node(left,  vcnt, names, values, err) ;
     if (leftval == NULL)
         return NULL ;
 
-    basic_value_t *rightval = eval_node(right,  vcnt, names, values, err) ;
+    switch(oper->oper_) 
+    {
+        case BASIC_OPERATOR_UNARY_MINUS:
+            ret = eval_unary_minus(leftval, err) ;
+            break ;    
+        default:
+            assert(false) ;
+            break ;            
+    }
+
+    basic_destroy_value(leftval) ;
+    return ret;    
+}
+
+static basic_value_t *eval_operator(operator_table_t *oper, int vcnt, char **names, basic_value_t **values, basic_operand_t *left, basic_operand_t *right, basic_err_t *err)
+{
+    basic_value_t* ret = NULL;
+    basic_value_t *leftval, *rightval ;
+
+    leftval = eval_node(left,  vcnt, names, values, err) ;
+    if (leftval == NULL)
+        return NULL ;
+
+    rightval = eval_node(right,  vcnt, names, values, err) ;
     if (rightval == NULL) {
         basic_destroy_value(leftval) ;
         return NULL ;
     }
 
     switch(oper->oper_) {
+
         case BASIC_OPERATOR_PLUS:
             ret = eval_plus(leftval, rightval, err) ;
             break ;
@@ -2276,6 +2429,9 @@ static basic_value_t *eval_operator(operator_table_t *oper, int vcnt, char **nam
         case BASIC_OPERATOR_AND:
             ret = eval_and(leftval, rightval, err) ;
             break ;        
+        default:
+            assert(false) ;
+            break ;
     }
 
     basic_destroy_value(leftval) ;
@@ -2285,7 +2441,7 @@ static basic_value_t *eval_operator(operator_table_t *oper, int vcnt, char **nam
 
 static basic_value_t *lookup_userfn_value(const char *name, uint32_t cnt, char **names, basic_value_t **values)
 {
-    for(int i = 0 ; i < cnt ; i++) {
+    for(uint32_t i = 0 ; i < cnt ; i++) {
         if (_stricmp(name, names[i]) == 0) {
             return values[i] ;
         }
@@ -2305,10 +2461,19 @@ static basic_value_t *eval_node(basic_operand_t *op, int vcnt, char **names, bas
             ret = clone_value(op->operand_.const_) ;
             break ;
         case BASIC_OPERAND_TYPE_OPERATOR:
-            ret = eval_operator(op->operand_.operator_.operator_, 
-                                vcnt, names, values,
-                                op->operand_.operator_.left_,
-                                op->operand_.operator_.right_, err) ;
+            if (op->operand_.operator_.operator_->unary)
+            {
+                ret = eval_unary_operator(op->operand_.operator_.operator_, 
+                                    vcnt, names, values,
+                                    op->operand_.operator_.left_, err) ;
+            }
+            else
+            {
+                ret = eval_operator(op->operand_.operator_.operator_, 
+                                    vcnt, names, values,
+                                    op->operand_.operator_.left_,
+                                    op->operand_.operator_.right_, err) ;
+            }
             break; 
         case BASIC_OPERAND_TYPE_VAR:
             {
@@ -2456,24 +2621,29 @@ uint32_t basic_expr_to_string(uint32_t index)
     return ret ;
 }
 
-void basic_expr_clear_all()
-{
-    while (exprs) {
-        basic_expr_destroy(exprs->index_);
-    }
-}
-
-#ifdef _DUMP_EXPRS_
+#ifdef DEBUG
 void basic_expr_dump()
 {
     for (basic_expr_t* expr = exprs; expr != NULL; expr = expr->next_) {
         uint32_t exprhand = basic_expr_to_string(expr->index_);
         const char* exprstr = basic_str_value(exprhand);
-        printf("%d: '%s'\n", expr->index_, exprstr);
+        printf("%ld: '%s'\n", expr->index_, exprstr);
         basic_str_destroy(exprhand);
     }
 }
 #endif
+
+void basic_expr_clear_all()
+{
+#ifdef DEBUG_SAVE
+    printf("Destroying Expressions\n") ;
+    basic_expr_dump();
+#endif
+
+    while (exprs) {
+        basic_expr_destroy(exprs->index_);
+    }
+}
 
 basic_expr_user_fn_t* get_user_fn_from_index(uint32_t index)
 {
@@ -2514,10 +2684,10 @@ bool basic_userfn_bind(char* fnname, uint32_t argcnt, char** argnames, uint32_t 
     ufn->args_ = (char **)malloc(sizeof(char *) * argcnt);
     if (ufn->args_ == NULL) {
         free(ufn) ;
-        return NULL ;
+        return false;
     }
 
-    for(int i = 0 ; i < argcnt ; i++) {
+    for(uint32_t i = 0 ; i < argcnt ; i++) {
         ufn->args_[i] = argnames[i] ;
     }
 
@@ -2564,11 +2734,12 @@ bool basic_userfn_destroy(uint32_t index)
         f->next_ = ufn->next_;
     }
 
-    for (int i = 0; i < ufn->argcnt_; i++) {
+    for (uint32_t i = 0; i < ufn->argcnt_; i++) {
         free(ufn->args_[i]);
     }
 
     basic_expr_destroy(ufn->expridx_);
+    free(ufn->name_);
     free(ufn->args_);
     free(ufn);
 

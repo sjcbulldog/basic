@@ -49,6 +49,7 @@ typedef enum btokens {
     BTOKEN_TRON,
     BTOKEN_TROFF,
     BTOKEN_VARS,
+    BTOKEN_MEM,
     BTOKEN_DATA,
     BTOKEN_READ,
     BTOKEN_RESTORE
@@ -56,8 +57,8 @@ typedef enum btokens {
 
 typedef struct basic_line
 {
-    int lineno_ ;
-    int count_ ;
+    uint32_t lineno_ ;
+    uint32_t count_ ;
     uint8_t *tokens_ ;
     char *extra_ ;
     struct basic_line *children_ ;

@@ -2,10 +2,11 @@
 
 #include <stdbool.h>
 #include <cy_result.h>
+#include <string.h>
 #include "basicline.h"
 #include "basicerr.h"
 
-typedef cy_rslt_t (*basic_out_fn_t)(const char *, int) ;
+typedef cy_rslt_t (*basic_out_fn_t)(const char *, size_t) ;
 
 extern bool basic_line_proc(const char *line, basic_out_fn_t outfn) ;
 extern void basic_prompt(basic_out_fn_t outfn) ;

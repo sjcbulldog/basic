@@ -71,7 +71,7 @@ static void uart_event_handler(void *arg, cyhal_uart_event_t event)
     }
 }
 
-static cy_rslt_t uart_output(const char *text, int len)
+static cy_rslt_t uart_output(const char *text, size_t len)
 {
     static char cr = '\r';
     size_t wlen ;

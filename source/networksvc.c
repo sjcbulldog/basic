@@ -7,6 +7,7 @@
 #include "basictask.h"
 #include <stdio.h>
 #include <ctype.h>
+#include <string.h>
 
 #define TCP_KEEP_ALIVE_IDLE_TIME_MS (1000000u)
 #define TCP_KEEP_ALIVE_INTERVAL_MS (1000u)
@@ -32,7 +33,7 @@ static cy_socket_sockaddr_t tcp_server_addr = {
     .ip_address.version = CY_SOCKET_IP_VER_V4,
     .port = 23};
 
-cy_rslt_t network_svc_send_data(const char *buffer, int length)
+cy_rslt_t network_svc_send_data(const char *buffer, size_t length)
 {
     uint32_t bytes = length;
     uint32_t sent = 0;
