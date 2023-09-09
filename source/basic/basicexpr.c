@@ -418,18 +418,15 @@ const char *basic_expr_parse_int(const char *line, int *value, basic_err_t *err)
     return line ;
 }
 
-bool basic_destroy_value(basic_value_t *value)
+void basic_value_destroy(basic_value_t *value)
 {
     if (value->type_ == BASIC_VALUE_TYPE_STRING) {
         free(value->value.svalue_);
     }
-
     free(value) ;
-
-    return true ;
 }
 
-basic_value_t *basic_create_number_value(double v)
+basic_value_t *basic_value_create_number(double v)
 {
     basic_value_t *ret = (basic_value_t *)malloc(sizeof(basic_value_t)) ;
     if (ret == NULL)
@@ -440,7 +437,7 @@ basic_value_t *basic_create_number_value(double v)
     return ret;
 }
 
-basic_value_t *basic_create_string_value(const char *v)
+basic_value_t *basic_value_create_string(const char *v)
 {
     if (v == NULL) {
         v = "" ;
@@ -579,8 +576,20 @@ bool basic_var_destroy(uint32_t index)
 	}
 
 	if (var->value_ != NULL) {
-		basic_destroy_value(var->value_);
+		basic_value_destroy(var->value_);
 	}
+
+    if (var->dims_ != NULL) {
+        free(var->dims_);
+        if (var->darray_)
+            free(var->darray_);
+        if (var->sarray_) {
+            for (uint32_t i = 0; i < var->dimcnt_; i++) {
+                free(var->sarray_[i]);
+            }
+            free(var->sarray_);
+        }
+    }
 
 	free(var) ;
 	return true ;
@@ -617,7 +626,7 @@ bool basic_var_set_value(uint32_t index, basic_value_t* value, basic_err_t* err)
     }
 
     if (var->value_ != NULL) {
-        basic_destroy_value(var->value_);
+        basic_value_destroy(var->value_);
     }
     var->value_ = value;
     return true;
@@ -625,7 +634,7 @@ bool basic_var_set_value(uint32_t index, basic_value_t* value, basic_err_t* err)
 
 bool basic_var_set_value_number(uint32_t index, double value, basic_err_t* err)
 {
-    basic_value_t *nval = basic_create_number_value(value) ;
+    basic_value_t *nval = basic_value_create_number(value) ;
     if (nval == NULL) {
         *err = BASIC_ERR_OUT_OF_MEMORY ;
         return false ;
@@ -636,7 +645,7 @@ bool basic_var_set_value_number(uint32_t index, double value, basic_err_t* err)
 
 bool basic_var_set_value_string(uint32_t index, const char *value, basic_err_t* err)
 {
-    basic_value_t *nval = basic_create_string_value(value) ;
+    basic_value_t *nval = basic_value_create_string(value) ;
     if (nval == NULL) {
         *err = BASIC_ERR_OUT_OF_MEMORY ;
         return false ;
@@ -724,10 +733,10 @@ basic_value_t *basic_var_get_array_value(uint32_t index, uint32_t *dims, basic_e
     }
 
     if (var->sarray_ != NULL) {
-        ret = basic_create_string_value(var->sarray_[ain]);
+        ret = basic_value_create_string(var->sarray_[ain]);
     }
     else {
-        ret = basic_create_number_value(var->darray_[ain]);
+        ret = basic_value_create_number(var->darray_[ain]);
     }
 
     return ret;
@@ -779,6 +788,8 @@ bool basic_var_set_array_value(uint32_t index, basic_value_t *value, uint32_t *d
         }
         var->darray_[ain] = value->value.nvalue_ ;
     }
+
+    basic_value_destroy(value);
 
     return true ;
 }
@@ -858,7 +869,7 @@ static void basic_destroy_operand(basic_operand_t *operand)
 {
     switch(operand->type_) {
         case BASIC_OPERAND_TYPE_CONST:
-            basic_destroy_value(operand->operand_.const_);
+            basic_value_destroy(operand->operand_.const_);
             break ;
 
         case BASIC_OPERAND_TYPE_OPERATOR:
@@ -1068,7 +1079,7 @@ static basic_value_t *func_mem(int count, basic_value_t **args, basic_err_t *err
     }
 #endif
 
-    basic_value_t *v = basic_create_number_value(ret);
+    basic_value_t *v = basic_value_create_number(ret);
     if (v == NULL) {
         *err = BASIC_ERR_OUT_OF_MEMORY ;
         return NULL ;
@@ -1108,7 +1119,7 @@ static basic_value_t* func_rnd(int count, basic_value_t** args, basic_err_t* err
     value = (double)cyhal_trng_generate(&trng_obj) / (double)(0xffffffff);
 #endif
 
-    return basic_create_number_value(value) ;
+    return basic_value_create_number(value) ;
 }
 
 static basic_value_t* func_int(int count, basic_value_t** args, basic_err_t *err)
@@ -1124,7 +1135,7 @@ static basic_value_t* func_int(int count, basic_value_t** args, basic_err_t *err
         return NULL;
     }
 
-    return basic_create_number_value((int)v->value.nvalue_);
+    return basic_value_create_number((int)v->value.nvalue_);
 }
 
 static basic_value_t* func_sqrt(int count, basic_value_t** args, basic_err_t *err)
@@ -1145,7 +1156,7 @@ static basic_value_t* func_sqrt(int count, basic_value_t** args, basic_err_t *er
         return NULL ;
     }
 
-    return basic_create_number_value(sqrt(v->value.nvalue_)) ;
+    return basic_value_create_number(sqrt(v->value.nvalue_)) ;
 }
 
 static basic_value_t* func_exp(int count, basic_value_t** args, basic_err_t *err)
@@ -1161,7 +1172,7 @@ static basic_value_t* func_exp(int count, basic_value_t** args, basic_err_t *err
         return NULL;
     }
 
-    return basic_create_number_value(exp(v->value.nvalue_)) ;
+    return basic_value_create_number(exp(v->value.nvalue_)) ;
 }
 
 static basic_value_t* func_left(int count, basic_value_t** args, basic_err_t *err)
@@ -1193,7 +1204,7 @@ static basic_value_t* func_left(int count, basic_value_t** args, basic_err_t *er
     strncpy(strv, str->value.svalue_, nlen);
     strv[nlen] = '\0' ;
 
-    basic_value_t *ret = basic_create_string_value(strv) ;
+    basic_value_t *ret = basic_value_create_string(strv) ;
     free(strv) ;
 
     if (ret == NULL)
@@ -1239,7 +1250,7 @@ static basic_value_t* func_right(int count, basic_value_t** args, basic_err_t *e
     }
     strv[nlen] = '\0' ;
 
-    basic_value_t *ret = basic_create_string_value(strv) ;
+    basic_value_t *ret = basic_value_create_string(strv) ;
     free(strv) ;
 
     if (ret == NULL)
@@ -1299,7 +1310,7 @@ static basic_value_t* func_mid(int count, basic_value_t** args, basic_err_t *err
         strv[nlen] = '\0'; 
     }
 
-    basic_value_t *ret = basic_create_string_value(strv) ;
+    basic_value_t *ret = basic_value_create_string(strv) ;
     free(strv) ;
 
     if (ret == NULL)
@@ -1321,7 +1332,7 @@ static basic_value_t* func_len(int count, basic_value_t** args, basic_err_t *err
         return NULL;
     }
 
-    return basic_create_number_value((double)(strlen(str->value.svalue_))) ;
+    return basic_value_create_number((double)(strlen(str->value.svalue_))) ;
 }
 
 static basic_value_t* func_str(int count, basic_value_t** args, basic_err_t *err)
@@ -1344,7 +1355,7 @@ static basic_value_t* func_str(int count, basic_value_t** args, basic_err_t *err
     else
         sprintf(buf, " %f ", value->value.nvalue_);
 
-    basic_value_t *ret = basic_create_string_value(buf) ;
+    basic_value_t *ret = basic_value_create_string(buf) ;
     if (ret == NULL) {
         *err = BASIC_ERR_OUT_OF_MEMORY ;
     }
@@ -1365,7 +1376,7 @@ static basic_value_t* func_abs(int count, basic_value_t** args, basic_err_t *err
         return NULL;
     }
 
-    return basic_create_number_value(fabs(v->value.nvalue_)) ;
+    return basic_value_create_number(fabs(v->value.nvalue_)) ;
 }
 
 static basic_value_t* func_chr(int count, basic_value_t** args, basic_err_t *err)
@@ -1393,7 +1404,7 @@ static basic_value_t* func_chr(int count, basic_value_t** args, basic_err_t *err
     buf[0] = n ;
     buf[1] = 0 ;
 
-    basic_value_t *ret = basic_create_string_value(buf) ;
+    basic_value_t *ret = basic_value_create_string(buf) ;
     if (ret == NULL) {
         *err = BASIC_ERR_OUT_OF_MEMORY ;
     }
@@ -1512,7 +1523,7 @@ static const char *parse_operand(expr_ctxt_t *ctxt, const char *line, basic_oper
         ctxt->parsebuffer[bind] = '\0' ;
 
         double fv = atof(ctxt->parsebuffer) ;
-        basic_value_t *value = basic_create_number_value(fv);
+        basic_value_t *value = basic_value_create_number(fv);
         if (value == NULL) {
             *err = BASIC_ERR_OUT_OF_MEMORY ;
             return NULL ;
@@ -1538,7 +1549,7 @@ static const char *parse_operand(expr_ctxt_t *ctxt, const char *line, basic_oper
         line++ ;
         ctxt->parsebuffer[bind] = '\0' ;
 
-        basic_value_t *value = basic_create_string_value(ctxt->parsebuffer) ;
+        basic_value_t *value = basic_value_create_string(ctxt->parsebuffer) ;
         if (value == NULL) {
             *err = BASIC_ERR_OUT_OF_MEMORY ;
             return NULL ;
@@ -2042,9 +2053,9 @@ static basic_value_t *clone_value(basic_value_t *v)
     basic_value_t *ret ;
 
     if (v->type_ == BASIC_VALUE_TYPE_NUMBER)
-        ret = basic_create_number_value(v->value.nvalue_) ;
+        ret = basic_value_create_number(v->value.nvalue_) ;
     else
-        ret = basic_create_string_value(v->value.svalue_) ;
+        ret = basic_value_create_string(v->value.svalue_) ;
 
     return ret;
 }
@@ -2059,7 +2070,7 @@ static basic_value_t *eval_plus(basic_value_t *left, basic_value_t *right, basic
     }
 
     if (left->type_ == BASIC_VALUE_TYPE_NUMBER) {
-        ret = basic_create_number_value(left->value.nvalue_ + right->value.nvalue_);
+        ret = basic_value_create_number(left->value.nvalue_ + right->value.nvalue_);
     }
     else {
         char *combined  = (char *)malloc(strlen(left->value.svalue_) + strlen(right->value.svalue_) + 1) ;
@@ -2091,7 +2102,7 @@ static basic_value_t *eval_unary_minus(basic_value_t *left, basic_err_t *err)
         return NULL ;
     }
 
-    ret = basic_create_number_value(-left->value.nvalue_);
+    ret = basic_value_create_number(-left->value.nvalue_);
 
     if (ret == NULL) {
         *err = BASIC_ERR_OUT_OF_MEMORY ;
@@ -2109,7 +2120,7 @@ static basic_value_t *eval_minus(basic_value_t *left, basic_value_t *right, basi
         return NULL ;
     }
 
-    ret = basic_create_number_value(left->value.nvalue_ - right->value.nvalue_);
+    ret = basic_value_create_number(left->value.nvalue_ - right->value.nvalue_);
 
     if (ret == NULL) {
         *err = BASIC_ERR_OUT_OF_MEMORY ;
@@ -2127,7 +2138,7 @@ static basic_value_t *eval_times(basic_value_t *left, basic_value_t *right, basi
         return NULL ;
     }
 
-    ret = basic_create_number_value(left->value.nvalue_ * right->value.nvalue_);
+    ret = basic_value_create_number(left->value.nvalue_ * right->value.nvalue_);
 
     if (ret == NULL) {
         *err = BASIC_ERR_OUT_OF_MEMORY ;
@@ -2150,7 +2161,7 @@ static basic_value_t *eval_divide(basic_value_t *left, basic_value_t *right, bas
         return NULL ;
     }
 
-    ret = basic_create_number_value(left->value.nvalue_ / right->value.nvalue_);
+    ret = basic_value_create_number(left->value.nvalue_ / right->value.nvalue_);
 
     if (ret == NULL) {
         *err = BASIC_ERR_OUT_OF_MEMORY ;
@@ -2169,7 +2180,7 @@ static basic_value_t *eval_power(basic_value_t *left, basic_value_t *right, basi
     }
 
     double p = pow(left->value.nvalue_, right->value.nvalue_);
-    ret = basic_create_number_value(p) ;
+    ret = basic_value_create_number(p) ;
 
     if (ret == NULL) {
         *err = BASIC_ERR_OUT_OF_MEMORY ;
@@ -2197,7 +2208,7 @@ static basic_value_t *eval_not_equal(basic_value_t *left, basic_value_t *right, 
         return NULL ;
     }
 
-    ret = basic_create_number_value(p) ;
+    ret = basic_value_create_number(p) ;
     if (ret == NULL) {
         *err = BASIC_ERR_OUT_OF_MEMORY ;
     }
@@ -2224,7 +2235,7 @@ static basic_value_t *eval_equal(basic_value_t *left, basic_value_t *right, basi
         return NULL ;
     }
 
-    ret = basic_create_number_value(p) ;
+    ret = basic_value_create_number(p) ;
     if (ret == NULL) {
         *err = BASIC_ERR_OUT_OF_MEMORY ;
     }
@@ -2242,7 +2253,7 @@ static basic_value_t *eval_greater(basic_value_t *left, basic_value_t *right, ba
     }
 
     double p = (left->value.nvalue_ > right->value.nvalue_) ;
-    ret = basic_create_number_value(p) ;
+    ret = basic_value_create_number(p) ;
 
     if (ret == NULL) {
         *err = BASIC_ERR_OUT_OF_MEMORY ;
@@ -2261,7 +2272,7 @@ static basic_value_t *eval_greater_eq(basic_value_t *left, basic_value_t *right,
     }
 
     double p = (left->value.nvalue_ >= right->value.nvalue_) ;
-    ret = basic_create_number_value(p) ;
+    ret = basic_value_create_number(p) ;
 
     if (ret == NULL) {
         *err = BASIC_ERR_OUT_OF_MEMORY ;
@@ -2280,7 +2291,7 @@ static basic_value_t *eval_less(basic_value_t *left, basic_value_t *right, basic
     }
 
     double p = (left->value.nvalue_ < right->value.nvalue_) ;
-    ret = basic_create_number_value(p) ;
+    ret = basic_value_create_number(p) ;
 
     if (ret == NULL) {
         *err = BASIC_ERR_OUT_OF_MEMORY ;
@@ -2299,7 +2310,7 @@ static basic_value_t *eval_less_eq(basic_value_t *left, basic_value_t *right, ba
     }
 
     double p = (left->value.nvalue_ <= right->value.nvalue_) ;
-    ret = basic_create_number_value(p) ;
+    ret = basic_value_create_number(p) ;
 
     if (ret == NULL) {
         *err = BASIC_ERR_OUT_OF_MEMORY ;
@@ -2320,7 +2331,7 @@ static basic_value_t *eval_or(basic_value_t *left, basic_value_t *right, basic_e
     int l = fabs(left->value.nvalue_) > 1e-6 ;
     int r = fabs(right->value.nvalue_) > 1e-6 ;
     double p = (l || r) ;
-    ret = basic_create_number_value(p) ;
+    ret = basic_value_create_number(p) ;
 
     if (ret == NULL) {
         *err = BASIC_ERR_OUT_OF_MEMORY ;
@@ -2341,7 +2352,7 @@ static basic_value_t *eval_and(basic_value_t *left, basic_value_t *right, basic_
     int l = fabs(left->value.nvalue_) > 1e-6 ;
     int r = fabs(right->value.nvalue_) > 1e-6 ;
     double p = (l && r) ;
-    ret = basic_create_number_value(p) ;
+    ret = basic_value_create_number(p) ;
 
     if (ret == NULL) {
         *err = BASIC_ERR_OUT_OF_MEMORY ;
@@ -2369,7 +2380,7 @@ static basic_value_t *eval_unary_operator(operator_table_t *oper, int vcnt, char
             break ;            
     }
 
-    basic_destroy_value(leftval) ;
+    basic_value_destroy(leftval) ;
     return ret;    
 }
 
@@ -2384,7 +2395,7 @@ static basic_value_t *eval_operator(operator_table_t *oper, int vcnt, char **nam
 
     rightval = eval_node(right,  vcnt, names, values, err) ;
     if (rightval == NULL) {
-        basic_destroy_value(leftval) ;
+        basic_value_destroy(leftval) ;
         return NULL ;
     }
 
@@ -2434,8 +2445,8 @@ static basic_value_t *eval_operator(operator_table_t *oper, int vcnt, char **nam
             break ;
     }
 
-    basic_destroy_value(leftval) ;
-    basic_destroy_value(rightval) ;
+    basic_value_destroy(leftval) ;
+    basic_value_destroy(rightval) ;
     return ret;
 }
 
@@ -2511,6 +2522,7 @@ static basic_value_t *eval_node(basic_operand_t *op, int vcnt, char **names, bas
                         }
 
                         dims[i] = (int)dimval->value.nvalue_;
+                        basic_value_destroy(dimval);
                     }
 
                     ret = basic_var_get_array_value(varidx, dims, err) ;
@@ -2536,7 +2548,7 @@ static basic_value_t *eval_node(basic_operand_t *op, int vcnt, char **names, bas
 
                 ret = op->operand_.function_.func_->eval_(argcnt, argvals, err);
                 for (int i = 0; i < argcnt; i++) {
-                    basic_destroy_value(argvals[i]);
+                    basic_value_destroy(argvals[i]);
                 }
 
                 free(argvals);
@@ -2564,7 +2576,7 @@ static basic_value_t *eval_node(basic_operand_t *op, int vcnt, char **names, bas
                                       op->operand_.userfn_.func_->args_, 
                                       argvals, err);
                 for (int i = 0; i < argcnt; i++) {
-                    basic_destroy_value(argvals[i]);
+                    basic_value_destroy(argvals[i]);
                 }
                 free(argvals);
             }

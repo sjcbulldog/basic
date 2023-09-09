@@ -120,12 +120,14 @@ void basic_load(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
         return ;
 
     if (value->type_ != BASIC_VALUE_TYPE_STRING) {
+        basic_value_destroy(value);
         *err = BASIC_ERR_TYPE_MISMATCH ;
         return ;
     }
 
     strcat(filename, value->value.svalue_);
     basic_proc_load(filename, err, outfn) ;
+    basic_value_destroy(value);
 }
 
 void basic_flist(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
@@ -144,7 +146,8 @@ static char inbuf[512];
 const char* basic_task_get_line()
 {
     fgets(inbuf, sizeof(inbuf), stdin);
-    return inbuf;
+    char* ret = _strdup(inbuf);
+    return ret;
 }
 
 void basic_task_store_input(bool b)
@@ -157,7 +160,7 @@ int main(int ac, char **av)
     ac-- ;
     av++ ;
 
-    _crtBreakAlloc = 105;
+    // _crtBreakAlloc = 19850;
 
     FILE *f = fopen(*av, "r") ;
     if (f == NULL) {

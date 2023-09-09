@@ -882,7 +882,6 @@ void basic_run(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 
     *err = basic_exec_line(&context, outfn) ;
     if (end_program == BTOKEN_STOP) {
-        // TODO: Add line number to this message
         (outfn)(StoppedMessage, (int)strlen(StoppedMessage)) ;
     }
 
@@ -966,7 +965,7 @@ void basic_clear(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 static char fmtbuf[64];
 void basic_mem(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
-    #ifndef DESKTOP
+#ifndef DESKTOP
     struct mallinfo mall_info = mallinfo();
 
     extern uint8_t __HeapBase;  /* Symbol exported by the linker. */
@@ -991,11 +990,12 @@ void basic_mem(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 void basic_vars(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     const char *prefix = NULL ;
+    basic_value_t* value = NULL;
 
     if (line->count_ > 1) {
         uint32_t expr = getU32(line, 1) ;
 
-        basic_value_t *value = basic_expr_eval(expr, 0, NULL, NULL, err);
+        value = basic_expr_eval(expr, 0, NULL, NULL, err);
         if (value == NULL)
             return ;        
 
@@ -1043,6 +1043,9 @@ void basic_vars(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
         }
         free(all) ;
     }
+
+    if (value != NULL)
+        basic_value_destroy(value);
 }
 
 void basic_print(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
@@ -1066,6 +1069,7 @@ void basic_print(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 
             if (value->type_ != BASIC_VALUE_TYPE_NUMBER)
             {
+                basic_value_destroy(value);
                 *err = BASIC_ERR_TYPE_MISMATCH ;
                 return ;
             }
@@ -1075,6 +1079,7 @@ void basic_print(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
                 (*outfn)(" ", 1) ;
                 len++ ;
             }
+            basic_value_destroy(value);
         }
         else
         {
@@ -1101,6 +1106,7 @@ void basic_print(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 
             len += (int)strlen(str) ;
             (*outfn)(str, (int)strlen(str)) ;
+            basic_value_destroy(value);
         }
 
         if(index == line->count_)
@@ -1139,6 +1145,7 @@ void basic_on(basic_line_t *line, exec_context_t *current, exec_context_t *nextl
         return ;
 
     if (value->type_ != BASIC_VALUE_TYPE_NUMBER) {
+        basic_value_destroy(value);
         *err = BASIC_ERR_TYPE_MISMATCH ;
         return ;
     }
@@ -1176,6 +1183,7 @@ void basic_on(basic_line_t *line, exec_context_t *current, exec_context_t *nextl
             *err = BASIC_ERR_NONE ;
         }
     }
+    basic_value_destroy(value);
 }
 
 void basic_input(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
@@ -1379,16 +1387,19 @@ void basic_read(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
                     return;
 
                 if (value->type_ == BASIC_VALUE_TYPE_STRING) {
+                    basic_value_destroy(value);
                     *err = BASIC_ERR_TYPE_MISMATCH;
                     return;
                 }
 
                 if (value->value.nvalue_ < 0) {
+                    basic_value_destroy(value);
                     *err = BASIC_ERR_INVALID_DIMENSION;
                     return;
                 }
 
                 dims[i] = (uint32_t)value->value.nvalue_;
+                basic_value_destroy(value);
             }
 
             int vardimcnt = basic_var_get_dim_count(varidx, err) ;
@@ -1428,7 +1439,7 @@ void basic_read(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
             data_index += 4 ;
 
             const char *valuestr = basic_str_value(strh) ;
-            dvalue = basic_create_string_value(valuestr) ;
+            dvalue = basic_value_create_string(valuestr) ;
             if (dvalue == NULL) {
                 *err = BASIC_ERR_OUT_OF_MEMORY ;
                 return ;
@@ -1444,7 +1455,7 @@ void basic_read(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
             double v = getDouble(dline, data_index) ;
             data_index += sizeof(double) ;
 
-            dvalue = basic_create_number_value(v) ;
+            dvalue = basic_value_create_number(v) ;
             if (dvalue == NULL) {
                 *err = BASIC_ERR_OUT_OF_MEMORY ;
                 return ;
@@ -1488,6 +1499,9 @@ void basic_let_simple(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn
     if (value == NULL)
         return ;
 
+    //
+    // The variable now owns the value
+    //
     if (!basic_var_set_value(varindex, value, err))
         return ;
 
@@ -1521,16 +1535,19 @@ void basic_let_array(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
             return;
 
         if (value->type_ == BASIC_VALUE_TYPE_STRING) {
+            basic_value_destroy(value);
             *err = BASIC_ERR_TYPE_MISMATCH;
             return;
         }
 
         if (value->value.nvalue_ < 0) {
+            basic_value_destroy(value);
             *err = BASIC_ERR_INVALID_DIMENSION;
             return;
         }
 
         dims[i] = (uint32_t)value->value.nvalue_;
+        basic_value_destroy(value);
     }
 
     uint32_t exprindex = getU32(line, index) ;
@@ -1539,6 +1556,9 @@ void basic_let_array(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
     if (value == NULL)
         return ;
 
+    //
+    // The variable now owns the value
+    //
     if (!basic_var_set_array_value(varindex, value, dims, err))
         return ;
 
@@ -1566,17 +1586,28 @@ void basic_dim(basic_line_t* line, basic_err_t* err, basic_out_fn_t outfn)
         for (uint32_t i = 0; i < dimcnt; i++) {
             dims[i] = getU32(line, index);
 
-            basic_value_t *v = basic_expr_eval(dims[i], 0, NULL, NULL, err) ;
-            if (v == NULL)
+            basic_value_t *value = basic_expr_eval(dims[i], 0, NULL, NULL, err) ;
+            if (value == NULL)
                 return ;
 
-            if (v->type_ != BASIC_VALUE_TYPE_NUMBER) {
+            if (value->type_ != BASIC_VALUE_TYPE_NUMBER) 
+            {
+                basic_value_destroy(value);
                 *err = BASIC_ERR_TYPE_MISMATCH ;
                 return ;
             }
 
-            dims[i] = (int)v->value.nvalue_ ;
+            if (value->value.nvalue_ <= 0.0) 
+            {
+                basic_value_destroy(value);
+                *err = BASIC_ERR_INVALID_DIMENSION;
+                return;
+            }
+
+            dims[i] = (int)value->value.nvalue_ ;
             index += 4;
+
+            basic_value_destroy(value);
         }
 
         if (!basic_var_add_dims(varidx, dimcnt, dims, err))
@@ -1588,16 +1619,17 @@ void basic_dim(basic_line_t* line, basic_err_t* err, basic_out_fn_t outfn)
 
 void basic_if(basic_line_t *line, exec_context_t *current, exec_context_t *nextline, basic_err_t *err, basic_out_fn_t outfn)
 {
-    basic_value_t *cond = basic_expr_eval(getU32(line, 1), 0, NULL, NULL, err);
-    if (cond == NULL)
+    basic_value_t *value = basic_expr_eval(getU32(line, 1), 0, NULL, NULL, err);
+    if (value == NULL)
         return ;
 
-    if (cond->type_ != BASIC_VALUE_TYPE_NUMBER) {
+    if (value->type_ != BASIC_VALUE_TYPE_NUMBER) {
+        basic_value_destroy(value);
         *err = BASIC_ERR_TYPE_MISMATCH ;
         return ;
     }
 
-    if (cond->value.nvalue_ < 1.0e-6) {
+    if (value->value.nvalue_ < 1.0e-6) {
         //
         // Conditional is false, jump to the next numbered line
         //
@@ -1608,6 +1640,7 @@ void basic_if(basic_line_t *line, exec_context_t *current, exec_context_t *nextl
             nextline->lastline_ = true ;
     }
 
+    basic_value_destroy(value);
     *err = BASIC_ERR_NONE ;    
     return ;
 }
@@ -1634,8 +1667,10 @@ void basic_for(basic_line_t *line, exec_context_t *current, exec_context_t *next
     if (start == NULL)
         return ;
 
-    if (!basic_var_set_value(varindex, start, err))
-        return ;
+    if (!basic_var_set_value(varindex, start, err)) {
+        basic_value_destroy(start);
+        return;
+    }
 
     for_stack_entry_t *c = (for_stack_entry_t *)malloc(sizeof(for_stack_entry_t)) ;
     if (c == NULL) {
@@ -1694,6 +1729,7 @@ void basic_next(basic_line_t *line, exec_context_t *current, exec_context_t *nex
             return ;
 
         if (endval->type_ != BASIC_VALUE_TYPE_NUMBER) {
+            basic_value_destroy(endval);
             *err = BASIC_ERR_TYPE_MISMATCH ;
             return ;
         }        
@@ -1713,6 +1749,7 @@ void basic_next(basic_line_t *line, exec_context_t *current, exec_context_t *nex
             }
 
             step = stepval->value.nvalue_ ;
+            basic_value_destroy(stepval);
         }    
 
         if ((step < 0.0 && loopval->value.nvalue_ + step < endval->value.nvalue_) ||
@@ -1725,14 +1762,17 @@ void basic_next(basic_line_t *line, exec_context_t *current, exec_context_t *nex
             for_stack = for_stack->next_ ;
             free(todel) ;
             count-- ;
+            basic_value_destroy(endval);
         }
         else {
             //
             // The loop is still running, update the loop variable and go back to the statement before the
             // for statement
             //
-            if (!basic_var_set_value_number(for_stack->varidx_, loopval->value.nvalue_ + step, err))
-                return ;
+            if (!basic_var_set_value_number(for_stack->varidx_, loopval->value.nvalue_ + step, err)) {
+                basic_value_destroy(endval);
+                return;
+            }
 
             nextline->line_ = for_stack->context_.line_ ;
             nextline->child_ = for_stack->context_.child_ ;
@@ -1740,6 +1780,7 @@ void basic_next(basic_line_t *line, exec_context_t *current, exec_context_t *nex
             //
             // We break out of the loop as this for loop level is not done
             //
+            basic_value_destroy(endval);
             break ;
         }
     }

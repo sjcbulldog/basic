@@ -29,8 +29,9 @@ static inline const char *skipSpaces(const char *line)
     return line ;
 }
 
-extern basic_value_t *basic_create_string_value(const char *v) ;
-extern basic_value_t *basic_create_number_value(double d) ;
+extern basic_value_t *basic_value_create_string(const char *v) ;
+extern basic_value_t *basic_value_create_number(double d) ;
+extern void basic_value_destroy(basic_value_t* value);
 
 extern int basic_var_count() ;
 extern bool basic_var_get_all(uint32_t *all) ;

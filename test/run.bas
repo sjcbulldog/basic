@@ -1,2 +1,3 @@
-load "../test/games/trek.bas"
+load "../test/games/amazing.bas"
+run
 clear
