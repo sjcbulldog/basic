@@ -16,6 +16,7 @@ typedef enum btokens {
     BTOKEN_EXPR,
     BTOKEN_NUMBER,
     BTOKEN_STRING,
+    BTOKEN_BREAK,
 
     // These below here are in the token table in basicproc.c
     BTOKEN_RUN,
@@ -49,6 +50,7 @@ typedef enum btokens {
     BTOKEN_TRON,
     BTOKEN_TROFF,
     BTOKEN_VARS,
+    BTOKEN_BASE,
     BTOKEN_MEM,
     BTOKEN_DATA,
     BTOKEN_READ,

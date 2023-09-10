@@ -25,6 +25,8 @@ static bool crypto_inited = false ;
 static cyhal_trng_t trng_obj ;
 #endif
 
+static int array_base = 0 ;
+
 static basic_expr_user_fn_t* get_user_fn_from_name(const char *name) ;
 static basic_value_t *eval_node(basic_operand_t *op, int cntv, char **names, basic_value_t **values, basic_err_t *err) ;
 static const char* parse_operand_top(const char* line, int argcntg, char **argnames, basic_operand_t** ret, basic_err_t* err);
@@ -70,6 +72,7 @@ static basic_value_t *func_str(int count, basic_value_t**args, basic_err_t *err)
 static basic_value_t *func_abs(int count, basic_value_t**args, basic_err_t *err) ;
 static basic_value_t *func_chr(int count, basic_value_t**args, basic_err_t *err) ;
 static basic_value_t *func_exp(int count, basic_value_t** args, basic_err_t *err) ;
+static basic_value_t *func_val(int count, basic_value_t** args, basic_err_t *err) ;
 
 function_table_t functions[] =
 {
@@ -86,7 +89,18 @@ function_table_t functions[] =
     { 1, "ABS", func_abs},
     { 1, "CHR$", func_chr},
     { 1, "EXP", func_exp},
+    { 1, "VAL", func_val},
 };
+
+int basic_array_get_base()
+{
+    return array_base ;
+}
+
+void basic_array_set_base(int val)
+{
+    array_base = val ;
+}
 
 
 static operator_table_t *operator_by_type(operator_type_t type)
@@ -704,7 +718,7 @@ static int compute_index(int dimcnt, uint32_t *maxdims, uint32_t *dims)
     int ret = 0 ;
     int mult = 1 ;
     for(int i = 0 ; i < dimcnt ; i++) {
-        ret += (dims[i] - 1) * mult ;
+        ret += (dims[i] - array_base) * mult ;
         mult *= maxdims[i] ;
     }
 
@@ -1173,6 +1187,33 @@ static basic_value_t* func_exp(int count, basic_value_t** args, basic_err_t *err
     }
 
     return basic_value_create_number(exp(v->value.nvalue_)) ;
+}
+
+static basic_value_t* func_val(int count, basic_value_t** args, basic_err_t *err)
+{
+    double value ;
+
+    if (count != 1) {
+        *err = BASIC_ERR_BAD_ARG_COUNT;
+        return NULL;
+    }
+
+    basic_value_t* v = args[0];
+    if (v->type_ != BASIC_VALUE_TYPE_STRING) {
+        *err = BASIC_ERR_TYPE_MISMATCH;
+        return NULL;
+    }
+
+    const char *text = skipSpaces(v->value.svalue_) ;
+    const char *line = basic_expr_parse_number(text, &value, err) ;
+    if (line != NULL)
+        line = skipSpaces(line) ;
+    if (line == NULL || *line != '\0') {
+        *err = BASIC_ERR_BAD_NUMBER_VALUE ;
+        return NULL ;
+    }
+
+    return basic_value_create_number(value) ;
 }
 
 static basic_value_t* func_left(int count, basic_value_t** args, basic_err_t *err)

@@ -14,6 +14,17 @@ static char other[256];
 static char lf = '\n';
 static char delete = 0x7f ;
 
+static void send_buffer()
+{
+    void *addr = &other[0];
+    if (!otherinuse)
+    {
+        strcpy(other, buffer);
+        xQueueSendFromISR(inputqueue, &addr, NULL);
+    }
+    cindex = 0;
+}
+
 static void uart_event_handler(void *arg, cyhal_uart_event_t event)
 {
     size_t len, wlen;
@@ -27,6 +38,12 @@ static void uart_event_handler(void *arg, cyhal_uart_event_t event)
             // Read one character from the UART
             cyhal_uart_read(&cy_retarget_io_uart_obj, &buffer[cindex], &len);
 
+            if (buffer[cindex] == 0x3) {
+                // Ctrl-C
+                buffer[0] = 0x03;
+                buffer[1] = 0x00 ;
+                send_buffer() ;
+            }
             if (buffer[cindex] == 0x7f || buffer[cindex] == 0x08)
             {
                 if (cindex > 0)
@@ -38,6 +55,7 @@ static void uart_event_handler(void *arg, cyhal_uart_event_t event)
             }
             else if (buffer[cindex] == 0x15)
             {
+                // Ctrl-U
                 buffer[cindex] = 0x7f ;
                 while (cindex > 0) 
                 {
@@ -62,13 +80,7 @@ static void uart_event_handler(void *arg, cyhal_uart_event_t event)
                 buffer[cindex + 1] = '\0';
                 if (buffer[cindex] == '\n')
                 {
-                    void *addr = &other[0];
-                    if (!otherinuse)
-                    {
-                        strcpy(other, buffer);
-                        xQueueSendFromISR(inputqueue, &addr, NULL);
-                    }
-                    cindex = 0;
+                    send_buffer() ;
                 }
                 else
                 {

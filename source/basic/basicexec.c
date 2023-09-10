@@ -40,6 +40,11 @@ static bool trace = false ;
 static int data_index ;
 static exec_context_t data_context ;
 
+void basic_break()
+{
+    end_program = BTOKEN_BREAK ;
+}
+
 static basic_line_t *find_line_by_number(uint32_t lineno)
 {
     for(basic_line_t *line = program ; line ; line = line->next_) {
@@ -691,6 +696,7 @@ static bool oneLineToString(basic_line_t *line, uint32_t str)
         case BTOKEN_SAVE:
         case BTOKEN_LOAD:
         case BTOKEN_DEL:
+        case BTOKEN_BASE:
             if (!exprToString(1, line, str))
                 return false;
             break ;
@@ -987,6 +993,37 @@ void basic_mem(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 #endif
 }
 
+void basic_base(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+{
+    if (line->count_ > 1) {
+        uint32_t expr = getU32(line, 1) ;
+
+        basic_value_t *value = basic_expr_eval(expr, 0, NULL, NULL, err);
+        if (value == NULL)
+            return ;        
+
+        if (value->type_ != BASIC_VALUE_TYPE_NUMBER) 
+        {
+            *err = BASIC_ERR_TYPE_MISMATCH ;
+            return ;
+        }
+
+        int b = (int)value->value.nvalue_ ;
+        basic_value_destroy(value) ;
+
+        if (b != 0 && b != 1) {
+            *err = BASIC_ERR_INVALID_ARG_VALUE ;
+            return ;
+        }
+
+        basic_array_set_base(b) ;
+    }
+    else {
+        sprintf(fmtbuf, "The array base value is %d\n", basic_array_get_base()) ;
+        (*outfn)(fmtbuf, strlen(fmtbuf)) ;
+    }
+}
+
 void basic_vars(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     const char *prefix = NULL ;
@@ -1238,6 +1275,16 @@ void basic_input(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
         if (tline[len - 1] == '\n')
             tline[len - 1] = '\0' ;
 
+        if (len == 1 && tline[0] == 0x03) {
+            //
+            // This is a break
+            //
+            basic_break() ;
+            basic_task_store_input(false) ;
+            *err = BASIC_ERR_NONE ;
+            return ;
+        }
+
         char *save = tline ;
         const char *text = tline ;
 
@@ -1375,7 +1422,7 @@ void basic_read(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 
         if (vtoken == BTOKEN_LET_ARRAY) 
         {
-            uint32_t dimcnt = getU32(line, index);
+            dimcnt = getU32(line, index);
             index += 4;
 
             for(uint32_t i = 0 ; i < dimcnt ; i++) {
@@ -1479,7 +1526,6 @@ void basic_read(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
         }
     }  
 }
-
 
 void basic_let_simple(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
@@ -1952,6 +1998,10 @@ static void exec_one_statement(basic_line_t *line, exec_context_t *current, exec
             basic_vars(line, err, outfn) ;
             break ;
 
+        case BTOKEN_BASE:
+            basic_base(line, err, outfn) ;
+            break ;
+
         case BTOKEN_MEM:
             basic_mem(line, err, outfn) ;
             break ;
@@ -2067,8 +2117,12 @@ int basic_exec_line(exec_context_t *context, basic_out_fn_t outfn)
             break ;
         }
 
-        if (end_program != BTOKEN_RUN || nextone.lastline_ == true)
+        if (end_program != BTOKEN_RUN || nextone.lastline_ == true) {
+            if (end_program == BTOKEN_BREAK) {
+                sprintf(tbuf, "Program break by user, line %ld\n", context->line_->lineno_);
+            }
             return BASIC_ERR_NONE ;
+        }
 
         if (nextone.line_ != NULL) 
         {

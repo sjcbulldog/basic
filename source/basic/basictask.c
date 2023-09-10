@@ -13,6 +13,12 @@ typedef struct queue_entry
 
 static bool store_input_ = false ;
 static QueueHandle_t line_queue ;
+static bool break_exec = false ;
+
+bool basic_task_is_break_requested()
+{
+    return break_exec ;
+}
 
 void basic_task_store_input(bool enabled)
 {

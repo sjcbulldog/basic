@@ -33,6 +33,9 @@ extern basic_value_t *basic_value_create_string(const char *v) ;
 extern basic_value_t *basic_value_create_number(double d) ;
 extern void basic_value_destroy(basic_value_t* value);
 
+extern int basic_array_get_base() ;
+extern void basic_array_set_base(int val) ;
+
 extern int basic_var_count() ;
 extern bool basic_var_get_all(uint32_t *all) ;
 extern bool basic_var_get(const char *name, uint32_t *index, basic_err_t *err) ;
