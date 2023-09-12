@@ -64,7 +64,7 @@ static const char *errMessages[] = {
 const char *basic_err_to_string(basic_err_t err)
 {
     uint32_t code = (uint32_t)err;
-    const char *msg = "UNKNOWN ERROR MESSAGE";
+    const char *msg = "UNKNOWN ERROR";
 
     if (code < sizeof(errMessages) / sizeof(errMessages[0]))
     {
