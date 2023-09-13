@@ -35,9 +35,9 @@ static TaskHandle_t uart_handle ;
 static TaskHandle_t basic_handle ;
 static TaskHandle_t usbmsd_handle ;
 
-static bool useUART = true ;
-static bool useWIFI = false ;
-static bool useUSBMS = true ;
+static const bool useUART = true ;
+static const bool useWIFI = false ;
+static const bool useUSBMS = true ;
 
 void control_task(void *param)
 {

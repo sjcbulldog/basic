@@ -511,6 +511,12 @@
                         <Param id="divider" value="1"/>
                     </Personality>
                 </Block>
+                <Block location="srss[0].clock[0].hfclk[1]">
+                    <Personality template="hfclk" version="3.0">
+                        <Param id="sourceClockNumber" value="0"/>
+                        <Param id="divider" value="1"/>
+                    </Personality>
+                </Block>
                 <Block location="srss[0].clock[0].hfclk[3]">
                     <Personality template="hfclk" version="3.0">
                         <Param id="sourceClockNumber" value="1"/>

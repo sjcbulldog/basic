@@ -48,6 +48,7 @@ extern basic_value_t *basic_var_get_value(uint32_t index) ;
 extern basic_value_t *basic_var_get_array_value(uint32_t index, uint32_t *dims, basic_err_t *err) ;
 extern const char *basic_var_get_name(uint32_t index) ;
 extern bool basic_var_add_dims(uint32_t index, uint32_t dimcnt, uint32_t *dims, basic_err_t *err);
+extern bool basic_var_is_array(uint32_t index) ;
 extern int basic_var_get_dim_count(uint32_t index, basic_err_t *err) ;
 extern bool basic_var_get_dims(uint32_t index, uint32_t *dimcnt, uint32_t *dims, basic_err_t* err);
 extern void basic_var_clear_all() ;

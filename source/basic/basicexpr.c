@@ -532,6 +532,12 @@ int basic_var_count()
     return cnt ;
 }
 
+bool basic_var_is_array(uint32_t index)
+{
+    basic_var_t* var = get_var_from_index(index);
+    return var != NULL && var->dimcnt_ > 0 ;    
+}
+
 bool basic_var_get_all(uint32_t *all)
 {
     int index = 0 ;

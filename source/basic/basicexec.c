@@ -1062,7 +1062,7 @@ void basic_vars(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 
             if (prefix == NULL || strncmp(prefix, varname, strlen(prefix)) == 0) 
             {
-                if (basic_var_get_dims(all[i]) == 0) {
+                if (basic_var_is_array(all[i]) == false) {
                     basic_value_t *value = basic_var_get_value(all[i]) ;
                     if (value->type_ == BASIC_VALUE_TYPE_NUMBER) {
                         if ((value->value.nvalue_ - (int)value->value.nvalue_) < 1e-6)
