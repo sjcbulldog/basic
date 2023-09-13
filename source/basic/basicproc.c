@@ -65,8 +65,10 @@ token_table_t tokens[] =
     { BTOKEN_DATA, "DATA"},
     { BTOKEN_READ, "READ"},
     { BTOKEN_RESTORE, "RESTORE"},
-
     { BTOKEN_LET, "LET"},
+    { BTOKEN_LED, "LED"},
+    { BTOKEN_SLEEP, "SLEEP"},
+
     //
     // These must be after the BTOKEN_LET line above as it needs to be used for parsing
     //
@@ -140,11 +142,6 @@ void basic_destroy_line(basic_line_t *line)
                 }
             }
             break;
-
-            case BTOKEN_LOAD:
-            case BTOKEN_SAVE:
-                basic_expr_destroy(getU32(line, 1));
-                break;
 
             case BTOKEN_LET_SIMPLE:
                 basic_str_destroy(getU32(line, 1)) ;
@@ -285,20 +282,15 @@ void basic_destroy_line(basic_line_t *line)
                 break;
 
             case BTOKEN_DEL:
+            case BTOKEN_RENAME:
+            case BTOKEN_LED:
+            case BTOKEN_SLEEP:  
+            case BTOKEN_DEF:     
+            case BTOKEN_IF:
+            case BTOKEN_LOAD:
+            case BTOKEN_SAVE:
                 basic_expr_destroy(getU32(line, 1));
                 break;    
-
-            case BTOKEN_RENAME:
-                basic_expr_destroy(getU32(line, 1));
-                break;                         
-
-            case BTOKEN_DEF:
-                basic_userfn_destroy(getU32(line, 1));
-                break;
-
-            case BTOKEN_IF:
-                basic_expr_destroy(getU32(line, 1));
-                break ;
 
             case BTOKEN_FOR:
                 basic_str_destroy(getU32(line, 1)) ;
@@ -1010,7 +1002,7 @@ static const char *parse_let(basic_line_t *bline, const char *line, basic_err_t 
     return line ;
 }
 
-static const char *parse_strings(int cnt, basic_line_t *bline, const char *line, basic_err_t *err)
+static const char *parse_exprs(int cnt, basic_line_t *bline, const char *line, basic_err_t *err)
 {
     uint32_t exprindex ;
 
@@ -1416,11 +1408,11 @@ static const char* tokenize_one(const char* line, basic_line_t *prev, basic_line
         else if (token == BTOKEN_NEXT) {
             line = parse_next(ret, line, err) ;
         }
-        else if (token == BTOKEN_LOAD || token == BTOKEN_SAVE || token == BTOKEN_DEL) {
-            line = parse_strings(1, ret, line, err) ;
+        else if (token == BTOKEN_LOAD || token == BTOKEN_SAVE || token == BTOKEN_DEL || token == BTOKEN_LED || token == BTOKEN_SLEEP) {
+            line = parse_exprs(1, ret, line, err) ;
         }
         else if (token == BTOKEN_RENAME) {
-            line = parse_strings(2, ret, line, err) ;        
+            line = parse_exprs(2, ret, line, err) ;        
         }
         else if (token == BTOKEN_DIM) {
             line = parse_dim(ret, line, err) ;

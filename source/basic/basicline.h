@@ -54,7 +54,9 @@ typedef enum btokens {
     BTOKEN_MEM,
     BTOKEN_DATA,
     BTOKEN_READ,
-    BTOKEN_RESTORE
+    BTOKEN_RESTORE,
+    BTOKEN_LED,
+    BTOKEN_SLEEP
 } btoken_t ;
 
 typedef struct basic_line

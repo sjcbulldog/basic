@@ -40,11 +40,10 @@ static void uart_event_handler(void *arg, cyhal_uart_event_t event)
 
             if (buffer[cindex] == 0x3) {
                 // Ctrl-C
-                buffer[0] = 0x03;
-                buffer[1] = 0x00 ;
-                send_buffer() ;
+                basic_break_isr();
+                cindex = 0 ;
             }
-            if (buffer[cindex] == 0x7f || buffer[cindex] == 0x08)
+            else if (buffer[cindex] == 0x7f || buffer[cindex] == 0x08)
             {
                 if (cindex > 0)
                 {

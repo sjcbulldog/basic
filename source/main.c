@@ -50,7 +50,7 @@ int main()
     printf("\x1b[2J\x1b[;H");
     printf("Basic06 Initializing\n");
 
-    cyhal_gpio_write(CYBSP_USER_LED, CYBSP_LED_STATE_ON);
+    cyhal_gpio_write(CYBSP_USER_LED, CYBSP_LED_STATE_OFF);
 
     /* Create the tasks. */
     xTaskCreate(control_task, "ControlTask", 1024, NULL, 6, NULL);

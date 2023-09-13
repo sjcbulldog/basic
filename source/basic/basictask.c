@@ -2,6 +2,7 @@
 #include "basicproc.h"
 #include <FreeRTOS.h>
 #include <queue.h>
+#include <event_groups.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -13,11 +14,26 @@ typedef struct queue_entry
 
 static bool store_input_ = false ;
 static QueueHandle_t line_queue ;
-static bool break_exec = false ;
+EventGroupHandle_t brevent ;
 
-bool basic_task_is_break_requested()
+void basic_break_isr()
 {
-    return break_exec ;
+    xEventGroupSetBitsFromISR(brevent, 1, NULL) ;
+}
+
+void basic_break()
+{
+    xEventGroupSetBits(brevent, 1);
+}
+
+void basic_clear_break()
+{
+    xEventGroupClearBits(brevent, 1) ;
+}
+
+bool basic_is_break()
+{
+    return (xEventGroupGetBits(brevent) & 1) == 1 ;
 }
 
 void basic_task_store_input(bool enabled)
@@ -39,7 +55,7 @@ char *basic_task_get_line()
     char *ret = NULL ;
     queue_entry_t *entry ;
 
-    if (xQueueReceive(line_queue, &entry, (TickType_t)0x7fffffff) == pdPASS) {
+    if (xQueueReceive(line_queue, &entry, 100 / portTICK_PERIOD_MS) == pdPASS) {
         ret = entry->line_ ;
         free(entry) ;
     }
@@ -50,6 +66,12 @@ char *basic_task_get_line()
 void basic_task(void *param)
 {
     queue_entry_t *entry ;
+
+    brevent = xEventGroupCreate() ;
+    if (brevent == NULL) {
+        printf("Error: could n ot create event group\n") ;
+        return ;
+    }
 
     line_queue = xQueueCreate(8, sizeof(queue_entry_t)) ;
     if (line_queue == NULL) {

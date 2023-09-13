@@ -4,6 +4,7 @@
 #include <crtdbg.h>
 #endif
 
+
 #include "basicexec.h"
 #include "basicerr.h"
 #include "basicproc.h"
@@ -15,11 +16,16 @@
 #include <FreeRTOS.h>
 #include <task.h>
 #endif
+#include <cybsp.h>
+#include <cyhal.h>
+#include <cyhal_gpio.h>
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
 #include <memory.h>
 #include <malloc.h>
+#include <FreeRTOS.h>
+#include <event_groups.h>
 
 extern void basic_save(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn) ;
 extern void basic_load(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn) ;
@@ -40,10 +46,7 @@ static bool trace = false ;
 static int data_index ;
 static exec_context_t data_context ;
 
-void basic_break()
-{
-    end_program = BTOKEN_BREAK ;
-}
+extern EventGroupHandle_t brevent ;
 
 static basic_line_t *find_line_by_number(uint32_t lineno)
 {
@@ -697,6 +700,8 @@ static bool oneLineToString(basic_line_t *line, uint32_t str)
         case BTOKEN_LOAD:
         case BTOKEN_DEL:
         case BTOKEN_BASE:
+        case BTOKEN_SLEEP:
+        case BTOKEN_LED:
             if (!exprToString(1, line, str))
                 return false;
             break ;
@@ -1057,25 +1062,32 @@ void basic_vars(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 
             if (prefix == NULL || strncmp(prefix, varname, strlen(prefix)) == 0) 
             {
-                basic_value_t *value = basic_var_get_value(all[i]) ;
-                if (value->type_ == BASIC_VALUE_TYPE_NUMBER) {
-                    if ((value->value.nvalue_ - (int)value->value.nvalue_) < 1e-6)
-                        sprintf(fmtbuf, " %d ", (int)value->value.nvalue_);
-                    else
-                        sprintf(fmtbuf, " %f ", value->value.nvalue_);
-                }
+                if (basic_var_get_dims(all[i]) == 0) {
+                    basic_value_t *value = basic_var_get_value(all[i]) ;
+                    if (value->type_ == BASIC_VALUE_TYPE_NUMBER) {
+                        if ((value->value.nvalue_ - (int)value->value.nvalue_) < 1e-6)
+                            sprintf(fmtbuf, " %d ", (int)value->value.nvalue_);
+                        else
+                            sprintf(fmtbuf, " %f ", value->value.nvalue_);
+                    }
 
-                (*outfn)(varname, (int)strlen(varname)) ;
-                (*outfn)(" = ", 3) ;
-                if (value->type_ == BASIC_VALUE_TYPE_NUMBER)
-                {
-                    (*outfn)(fmtbuf, (int)strlen(fmtbuf)) ;
+                    (*outfn)(varname, (int)strlen(varname)) ;
+                    (*outfn)(" = ", 3) ;
+                    if (value->type_ == BASIC_VALUE_TYPE_NUMBER)
+                    {
+                        (*outfn)(fmtbuf, (int)strlen(fmtbuf)) ;
+                    }
+                    else
+                    {
+                        (*outfn)(value->value.svalue_, (int)strlen(value->value.svalue_)) ;
+                    }
+                    (*outfn)("\n", 1) ;
                 }
-                else
-                {
-                    (*outfn)(value->value.svalue_, (int)strlen(value->value.svalue_)) ;
+                else {
+                    const char *msg = " is an array\n" ;
+                    (*outfn)(varname, (int)strlen(varname)) ;
+                    (*outfn)(msg, (int)strlen(msg)) ;
                 }
-                (*outfn)("\n", 1) ;
             }
         }
         free(all) ;
@@ -1270,20 +1282,20 @@ void basic_input(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
         //
         // Get a line of text from the user
         //
-        char *tline = basic_task_get_line() ;
+        char *tline = NULL ;
+
+        while (tline == NULL) {
+            tline = basic_task_get_line() ;
+            if (basic_is_break()) {
+                basic_task_store_input(false) ;
+                end_program = BTOKEN_BREAK ;
+                return ;
+            }
+        }
+
         int len = strlen(tline) ;
         if (tline[len - 1] == '\n')
             tline[len - 1] = '\0' ;
-
-        if (len == 1 && tline[0] == 0x03) {
-            //
-            // This is a break
-            //
-            basic_break() ;
-            basic_task_store_input(false) ;
-            *err = BASIC_ERR_NONE ;
-            return ;
-        }
 
         char *save = tline ;
         const char *text = tline ;
@@ -1889,6 +1901,42 @@ void basic_return(basic_line_t *line, exec_context_t *nextline, basic_err_t *err
     return ;
 }
 
+void basic_led(basic_line_t *line, basic_err_t *err)
+{
+    uint32_t expridx = getU32(line, 1) ;
+    basic_value_t *value = basic_expr_eval(expridx, 0, NULL, NULL, err) ;
+    if (value == NULL)
+        return ;
+
+    if (value->type_ != BASIC_VALUE_TYPE_NUMBER) {
+        *err = BASIC_ERR_TYPE_MISMATCH ;
+        return ;
+    }
+
+    if ((int)value->value.nvalue_ == 0) 
+    {
+        cyhal_gpio_write(CYBSP_USER_LED, CYBSP_LED_STATE_OFF);
+    }
+    else 
+    {
+        cyhal_gpio_write(CYBSP_USER_LED, CYBSP_LED_STATE_ON);
+    }
+}
+
+void basic_sleep(basic_line_t *line, basic_err_t *err)
+{
+    uint32_t expridx = getU32(line, 1) ;
+    basic_value_t *value = basic_expr_eval(expridx, 0, NULL, NULL, err) ;
+    if (value == NULL)
+        return ;
+
+    if (value->type_ != BASIC_VALUE_TYPE_NUMBER) {
+        *err = BASIC_ERR_TYPE_MISMATCH ;
+        return ;
+    }
+    vTaskDelay(((int)value->value.nvalue_) / portTICK_PERIOD_MS) ;
+}
+
 static int stmtNumber(basic_line_t *parent, basic_line_t *child)
 {
     int cnt = 0 ;
@@ -2022,6 +2070,14 @@ static void exec_one_statement(basic_line_t *line, exec_context_t *current, exec
             basic_goto(line, nextline, err, outfn) ;
             break ;
 
+        case BTOKEN_LED:
+            basic_led(line, err) ;
+            break ;
+
+        case BTOKEN_SLEEP:
+            basic_sleep(line, err) ;
+            break ;
+
         case BTOKEN_GOSUB:
             basic_gosub(line, current, nextline, err, outfn) ;
             break ;            
@@ -2101,9 +2157,9 @@ int basic_exec_line(exec_context_t *context, basic_out_fn_t outfn)
 
         // Error executing the last line
         if (code != BASIC_ERR_NONE) {
-            if (toexec->lineno_ != -1) 
+            if (context->line_->lineno_ != -1) 
             {
-                sprintf(tbuf, "Program failed: line %ld: error code %d: %s\n", toexec->lineno_, code, basic_err_to_string(code)) ;
+                sprintf(tbuf, "Program failed: line %ld: error code %d: %s\n", context->line_->lineno_, code, basic_err_to_string(code)) ;
             }
             else if (toexec->tokens_[0] != BTOKEN_LOAD && toexec->tokens_[0] != BTOKEN_RUN)
             {
@@ -2117,9 +2173,11 @@ int basic_exec_line(exec_context_t *context, basic_out_fn_t outfn)
             break ;
         }
 
-        if (end_program != BTOKEN_RUN || nextone.lastline_ == true) {
-            if (end_program == BTOKEN_BREAK) {
+        if (end_program != BTOKEN_RUN || nextone.lastline_ == true || basic_is_break()) {
+            if (end_program == BTOKEN_BREAK || basic_is_break()) {
+                basic_clear_break() ;
                 sprintf(tbuf, "Program break by user, line %ld\n", context->line_->lineno_);
+                (*outfn)(tbuf, strlen(tbuf)) ;
             }
             return BASIC_ERR_NONE ;
         }

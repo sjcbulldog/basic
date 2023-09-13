@@ -71,6 +71,7 @@ static basic_value_t *func_len(int count, basic_value_t**args, basic_err_t *err)
 static basic_value_t *func_str(int count, basic_value_t**args, basic_err_t *err) ;
 static basic_value_t *func_abs(int count, basic_value_t**args, basic_err_t *err) ;
 static basic_value_t *func_chr(int count, basic_value_t**args, basic_err_t *err) ;
+static basic_value_t *func_asc(int count, basic_value_t**args, basic_err_t *err) ;
 static basic_value_t *func_exp(int count, basic_value_t** args, basic_err_t *err) ;
 static basic_value_t *func_val(int count, basic_value_t** args, basic_err_t *err) ;
 
@@ -90,6 +91,7 @@ function_table_t functions[] =
     { 1, "CHR$", func_chr},
     { 1, "EXP", func_exp},
     { 1, "VAL", func_val},
+    { 1, "ASC", func_asc},
 };
 
 int basic_array_get_base()
@@ -1453,6 +1455,27 @@ static basic_value_t* func_chr(int count, basic_value_t** args, basic_err_t *err
     return ret;
 }
 
+static basic_value_t* func_asc(int count, basic_value_t** args, basic_err_t *err)
+{
+    if (count != 1) {
+        *err = BASIC_ERR_BAD_ARG_COUNT;
+        return NULL;
+    }
+
+    basic_value_t* v = args[0];
+    if (v->type_ != BASIC_VALUE_TYPE_STRING) {
+        *err = BASIC_ERR_TYPE_MISMATCH;
+        return NULL;
+    }
+
+    basic_value_t *ret = basic_value_create_number((int)v->value.svalue_[0]) ;
+    if (ret == NULL) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+    }
+
+    return ret;
+}
+
 static int match_def_local(expr_ctxt_t *ctxt)
 {
     if (ctxt->argcnt_ > 0) {
@@ -2287,13 +2310,22 @@ static basic_value_t *eval_equal(basic_value_t *left, basic_value_t *right, basi
 static basic_value_t *eval_greater(basic_value_t *left, basic_value_t *right, basic_err_t *err)
 {
     basic_value_t *ret ;
+    int p ;
 
-    if (left->type_ == BASIC_VALUE_TYPE_STRING || right->type_ == BASIC_VALUE_TYPE_STRING) {
+    if (left->type_ == BASIC_VALUE_TYPE_STRING && right->type_ == BASIC_VALUE_TYPE_STRING) 
+    {
+        p = (strcmp(left->value.svalue_, right->value.svalue_) > 0) ;
+    }
+    else if (left->type_ == BASIC_VALUE_TYPE_NUMBER && right->type_ == BASIC_VALUE_TYPE_NUMBER) 
+    {
+        p = (left->value.nvalue_ > right->value.nvalue_) ;
+    }
+    else 
+    {
         *err = BASIC_ERR_TYPE_MISMATCH ;
         return NULL ;
     }
 
-    double p = (left->value.nvalue_ > right->value.nvalue_) ;
     ret = basic_value_create_number(p) ;
 
     if (ret == NULL) {
@@ -2306,13 +2338,22 @@ static basic_value_t *eval_greater(basic_value_t *left, basic_value_t *right, ba
 static basic_value_t *eval_greater_eq(basic_value_t *left, basic_value_t *right, basic_err_t *err)
 {
     basic_value_t *ret ;
+    int p ;
 
-    if (left->type_ == BASIC_VALUE_TYPE_STRING || right->type_ == BASIC_VALUE_TYPE_STRING) {
+    if (left->type_ == BASIC_VALUE_TYPE_STRING && right->type_ == BASIC_VALUE_TYPE_STRING) 
+    {
+        p = (strcmp(left->value.svalue_, right->value.svalue_) >= 0) ;
+    }
+    else if (left->type_ == BASIC_VALUE_TYPE_NUMBER && right->type_ == BASIC_VALUE_TYPE_NUMBER) 
+    {
+        p = (left->value.nvalue_ >= right->value.nvalue_) ;
+    }
+    else 
+    {
         *err = BASIC_ERR_TYPE_MISMATCH ;
         return NULL ;
     }
 
-    double p = (left->value.nvalue_ >= right->value.nvalue_) ;
     ret = basic_value_create_number(p) ;
 
     if (ret == NULL) {
@@ -2325,13 +2366,22 @@ static basic_value_t *eval_greater_eq(basic_value_t *left, basic_value_t *right,
 static basic_value_t *eval_less(basic_value_t *left, basic_value_t *right, basic_err_t *err)
 {
     basic_value_t *ret ;
+    int p ;
 
-    if (left->type_ == BASIC_VALUE_TYPE_STRING || right->type_ == BASIC_VALUE_TYPE_STRING) {
+    if (left->type_ == BASIC_VALUE_TYPE_STRING && right->type_ == BASIC_VALUE_TYPE_STRING) 
+    {
+        p = (strcmp(left->value.svalue_, right->value.svalue_) < 0) ;
+    }
+    else if (left->type_ == BASIC_VALUE_TYPE_NUMBER && right->type_ == BASIC_VALUE_TYPE_NUMBER) 
+    {
+        p = (left->value.nvalue_ < right->value.nvalue_) ;
+    }
+    else 
+    {
         *err = BASIC_ERR_TYPE_MISMATCH ;
         return NULL ;
     }
 
-    double p = (left->value.nvalue_ < right->value.nvalue_) ;
     ret = basic_value_create_number(p) ;
 
     if (ret == NULL) {
@@ -2344,13 +2394,21 @@ static basic_value_t *eval_less(basic_value_t *left, basic_value_t *right, basic
 static basic_value_t *eval_less_eq(basic_value_t *left, basic_value_t *right, basic_err_t *err)
 {
     basic_value_t *ret ;
+    int p ;
 
-    if (left->type_ == BASIC_VALUE_TYPE_STRING || right->type_ == BASIC_VALUE_TYPE_STRING) {
+    if (left->type_ == BASIC_VALUE_TYPE_STRING && right->type_ == BASIC_VALUE_TYPE_STRING) 
+    {
+        p = (strcmp(left->value.svalue_, right->value.svalue_) <= 0) ;
+    }
+    else if (left->type_ == BASIC_VALUE_TYPE_NUMBER && right->type_ == BASIC_VALUE_TYPE_NUMBER) 
+    {
+        p = (left->value.nvalue_ <= right->value.nvalue_) ;
+    }
+    else 
+    {
         *err = BASIC_ERR_TYPE_MISMATCH ;
         return NULL ;
     }
-
-    double p = (left->value.nvalue_ <= right->value.nvalue_) ;
     ret = basic_value_create_number(p) ;
 
     if (ret == NULL) {
@@ -2539,12 +2597,17 @@ static basic_value_t *eval_node(basic_operand_t *op, int vcnt, char **names, bas
                 if (op->operand_.var_.dimcnt_ == 0) {
                     basic_value_t* val = basic_var_get_value(varidx);
                     if (val == NULL) {
-                        *err = BASIC_ERR_NO_SUCH_VARIABLE;
-                        ret = NULL;
+                        if (varname[strlen(varname) - 1] == '$') 
+                        {
+                            val = basic_value_create_string("");
+                        }
+                        else 
+                        {
+                            val = basic_value_create_number(0);
+                        }
+                        basic_var_set_value(varidx, val, err) ;
                     }
-                    else {
-                        ret = clone_value(val);
-                    }
+                    ret = clone_value(val);
                 }
                 else {
                     //
