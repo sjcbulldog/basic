@@ -45,6 +45,7 @@ token_table_t tokens[] =
     { BTOKEN_RETURN, "RETURN"},
     { BTOKEN_SAVE, "SAVE"},
     { BTOKEN_LOAD, "LOAD"},
+    { BTOKEN_RENUM, "RENUM"},
     { BTOKEN_STEP, "STEP"},
     { BTOKEN_PRINT, "PRINT"},
     { BTOKEN_FLIST, "FLIST"},
@@ -279,6 +280,7 @@ void basic_destroy_line(basic_line_t *line)
             case BTOKEN_TROFF:
             case BTOKEN_RESTORE:
             case BTOKEN_MEM:
+            case BTOKEN_RENUM:
                 break;
 
             case BTOKEN_DEL:
@@ -555,7 +557,7 @@ static const char* parse_def(basic_line_t* bline, const char* line, basic_err_t*
 static const char *parse_vars(basic_line_t *bline, const char *line, basic_err_t *err)
 {
     line = skipSpaces(line) ;
-    if (*line == '\0' || *line == ':') {
+    if (basic_is_end_of_line(line)) {
         *err = BASIC_ERR_NONE ;
         return line ;
     }  
@@ -577,7 +579,7 @@ static const char *parse_vars(basic_line_t *bline, const char *line, basic_err_t
 static const char *parse_base(basic_line_t *bline, const char *line, basic_err_t *err)
 {
     line = skipSpaces(line) ;
-    if (*line == '\0' || *line == ':') {
+    if (basic_is_end_of_line(line)) {
         *err = BASIC_ERR_NONE ;
         return line ;
     }  
@@ -664,7 +666,7 @@ static const char *parse_read(basic_line_t *bline, const char *line, basic_err_t
 {
     bool first = true ;
 
-    while (*line != '\0' && *line != ':') 
+    while (!basic_is_end_of_line(line)) 
     {
         if (!first) {
             line = skipSpaces(line) ;
@@ -692,7 +694,7 @@ static const char *parse_data(basic_line_t *bline, const char *line, basic_err_t
 
     line = skipSpaces(line) ;
 
-    while (*line != '\0' && *line != ':') 
+    while (!basic_is_end_of_line(line)) 
     {
         if (!first) {
             line = skipSpaces(line) ;
@@ -749,14 +751,14 @@ static const char *parse_print(basic_line_t *bline, const char *line, basic_err_
     uint32_t exprindex ;
 
     line = skipSpaces(line) ;
-    if (*line == '\0' || *line == ':') {
+    if (basic_is_end_of_line(line)) {
         *err = BASIC_ERR_NONE ;
         return line ;
     }
 
     while (1) {
         line = skipSpaces(line) ;
-        if (*line == '\0' || *line == ':')
+        if (basic_is_end_of_line(line))
             break ;
 
         if (_strnicmp(line, "tab", 3) == 0)
@@ -809,7 +811,7 @@ static const char *parse_print(basic_line_t *bline, const char *line, basic_err_
         }
 
         line = skipSpaces(line) ;
-        if (*line == '\0' || *line == ':') {
+        if (basic_is_end_of_line(line)) {
             break ;
         }
         else if (*line == ',') {
@@ -893,7 +895,7 @@ static const char *parse_input(basic_line_t *bline, const char *line, basic_err_
 
         line = skipSpaces(line) ;
 
-        if (*line == '\0' || *line == ':') {
+        if (basic_is_end_of_line(line)) {
             break ;
         }
 
@@ -952,7 +954,7 @@ static const char *parse_on(basic_line_t *bline, const char *line, basic_err_t *
         }
 
         line = skipSpaces(line) ;
-        if (*line == '\0' || *line == ':')
+        if (basic_is_end_of_line(line))
             break ;
         else if (*line == ',') {
             line = skipSpaces(line + 1) ;
@@ -989,7 +991,7 @@ static const char *parse_let(basic_line_t *bline, const char *line, basic_err_t 
     }    
 
     line = skipSpaces(line) ;
-    if (*line != '\0' && *line != ':') {
+    if (!basic_is_end_of_line(line)) {
         *err = BASIC_ERR_EXTRA_CHARS ;
         return NULL ;
     }    
@@ -1019,6 +1021,37 @@ static const char *parse_exprs(int cnt, basic_line_t *bline, const char *line, b
     }
 
     return line ;    
+}
+
+static const char *parse_renum(basic_line_t *bline, const char *line, basic_err_t *err)
+{
+    int start = 10 ;
+    int step = 10 ;
+
+    line = skipSpaces(line) ;
+    if (!basic_is_end_of_line(line)) {
+        line = basic_expr_parse_int(line, &start, err) ;
+        if (line == NULL)
+            return NULL ;
+
+        if (!basic_is_end_of_line(line)) {
+            line = basic_expr_parse_int(line, &step, err) ;
+            if (line == NULL)
+                return NULL ;
+        }
+    }
+
+    if (!add_uint32(bline, (uint32_t)start)) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+        return NULL ;        
+    } 
+
+    if (!add_uint32(bline, (uint32_t)step)) {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+        return NULL ;        
+    }
+    
+    return line ;
 }
 
 static const char *parse_dim(basic_line_t *bline, const char *line, basic_err_t *err)
@@ -1059,7 +1092,7 @@ static const char *parse_dim(basic_line_t *bline, const char *line, basic_err_t 
             // More variables
             line++ ;
         }
-        else if (*line == '\0' || *line == ':') {
+        else if (basic_is_end_of_line(line)) {
             break ;
         }
         else {
@@ -1078,7 +1111,7 @@ static const char *parse_next(basic_line_t* bline, const char* line, basic_err_t
 
     line = skipSpaces(line);
 
-    while (*line != '\0' && *line != ':') {
+    while (!basic_is_end_of_line(line)) {
         if (!first) {
             if (*line != ',') {
                 *err = BASIC_ERR_EXPECTED_COMMA ;
@@ -1152,7 +1185,7 @@ static const char* parse_for(basic_line_t* bline, const char* line, basic_err_t*
 
     line = skipSpaces(line) ;
 
-    if (*line != '\0' && *line != ':') {
+    if (!basic_is_end_of_line(line)) {
         line = parse_keyword(line, &token, err) ;
         if (line == NULL || token != BTOKEN_STEP) {
             *err = BASIC_ERR_EXPECTED_STEP ;
@@ -1178,7 +1211,7 @@ static const char* parse_list(basic_line_t* bline, const char* line, basic_err_t
     int end = 0x7fffffff ;
 
     line = skipSpaces(line) ;
-    if (*line != '\0' && *line != ':') {
+    if (!basic_is_end_of_line(line)) {
         //
         // Starting line
         //
@@ -1194,7 +1227,7 @@ static const char* parse_list(basic_line_t* bline, const char* line, basic_err_t
         // We have parsed the starting line number, should be either at
         // a dash or at the end of the statement
         //
-        if (*line == '\0' || *line == ':') {
+        if (basic_is_end_of_line(line)) {
             //
             // Just a single line number, set start and end to the same line
             end = start ;
@@ -1210,7 +1243,7 @@ static const char* parse_list(basic_line_t* bline, const char* line, basic_err_t
 
             line = skipSpaces(line + 1) ;
 
-            if (*line != '\0' && *line != ':') {
+            if (!basic_is_end_of_line(line)) {
                 //
                 // This is the case of START - END
                 //
@@ -1347,7 +1380,7 @@ static const char* tokenize_one(const char* line, basic_line_t *prev, basic_line
                 token == BTOKEN_STOP || token == BTOKEN_TRON || token == BTOKEN_TROFF || token == BTOKEN_MEM)
         {
             line = skipSpaces(line);
-            if (*line != '\0' && *line != ':') {
+            if (!basic_is_end_of_line(line)) {
                 *err = BASIC_ERR_EXTRA_CHARS;
                 line = NULL ;
             }
@@ -1416,6 +1449,9 @@ static const char* tokenize_one(const char* line, basic_line_t *prev, basic_line
         }
         else if (token == BTOKEN_DIM) {
             line = parse_dim(ret, line, err) ;
+        }
+        else if (token == BTOKEN_RENUM) {
+            line = parse_renum(ret, line, err) ;
         }
     }
 

@@ -18,3 +18,7 @@ extern bool basic_proc_load(const char *filename, basic_err_t *err, basic_out_fn
 extern bool basic_proc_save(const char *filename, basic_err_t *err, basic_out_fn_t outfn);
 
 extern bool basic_is_keyword(const char *line) ;
+
+inline bool basic_is_end_of_line(const char *line) {
+    return *line == '\0' || *line == ':' ;
+}

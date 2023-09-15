@@ -640,6 +640,24 @@ static bool onToString(basic_line_t *line, uint32_t str)
     return true;
 }
 
+static bool renumToString(basic_line_t *line, uint32_t str)
+{
+    if (!basic_str_add_int(str, getU32(line, 1)))
+    {
+        return false ;
+    }
+
+    if (!basic_str_add_str(str, " "))
+        return false ;      
+
+    if (!basic_str_add_int(str, getU32(line, 5)))
+    {
+        return false ;
+    }    
+
+    return true ;
+}
+
 static bool oneLineToString(basic_line_t *line, uint32_t str)
 {
     if (!basic_str_add_str(str, basic_token_to_str(line->tokens_[0]))) {
@@ -757,6 +775,11 @@ static bool oneLineToString(basic_line_t *line, uint32_t str)
             if (!inputToString(line, str))
                 return false ;
             break;
+
+        case BTOKEN_RENUM:
+            if (!renumToString(line, str))
+                return false ;
+            break ;
 
         default:    // No additional args
             assert(false);
@@ -1177,7 +1200,120 @@ void basic_print(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 
     return ;
 }
- 
+
+
+static int countLines() 
+{
+    int count = 0 ;
+
+    for(basic_line_t *pgm = program ; pgm != NULL ; pgm = pgm->next_)
+    {
+        count++ ;
+    }
+
+    return count ;
+}
+
+static void createLineMapping(int *oldlines, int *newlines, int start, int step)
+{
+    int current = start ;
+    int index = 0 ;
+
+    for(basic_line_t *pgm = program ; pgm != NULL ; pgm = pgm->next_)
+    {
+        oldlines[index] = pgm->lineno_ ;
+        newlines[index] = current ;
+        pgm->lineno_ = current ;
+        current += step ;
+        index++ ;
+    }
+}
+
+int getNewLine(int count, int oldline, int *oldlines, int *newlines)
+{
+    for(int i = 0 ; i < count ; i++) {
+        if (oldlines[i] == oldline) {
+            return newlines[i] ;
+        }
+    }
+
+    return -1 ;
+}
+
+// 
+// ON goto, ON gosub, GOTO, GOSUB
+//
+void updateLine(basic_line_t *line, int count, int *oldlines, int *newlines)
+{
+    if (line->tokens_[0] == BTOKEN_ON) 
+    {
+        uint32_t index = 6 ;
+
+        while (index < line->count_) {
+            uint32 lineno = getU32(line, index) ;
+            lineno = getNewLine(count, lineno, oldlines, newlines) ;
+            putU32(line, index, lineno);
+            index += 4 ;
+        }
+    }
+    else if (line->tokens_[0] == BTOKEN_GOTO || line->tokens_[0] == BTOKEN_GOSUB)
+    {
+        uint32 lineno = getU32(line, 1) ;
+        lineno = getNewLine(count, lineno, oldlines, newlines) ;
+        putU32(line, 1, lineno) ;
+    }
+}
+
+void updateLines(int count, int *oldlines, int *newlines)
+{
+    for(basic_line_t *pgm = program ; pgm != NULL ; pgm = pgm->next_)
+    {
+        updateLine(pgm, count, oldlines, newlines) ;
+        for(basic_line_t *child = pgm->children_ ; child != NULL ; child = child->next_) {
+            updateLine(child, count, oldlines, newlines);
+        }
+    }
+}
+
+void basic_renum(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
+{
+    int *oldlines ;
+    int *newlines ;
+
+    *err = BASIC_ERR_NONE ;
+    if (line->lineno_ != -1) {
+        *err = BASIC_ERR_NOT_ALLOWED ;
+        return ;
+    }
+
+    int count = countLines() ;
+    oldlines = (int *)malloc(sizeof(int) * count) ;
+    if (oldlines == NULL)
+    {
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+        return ;
+    }
+
+    newlines = (int *)malloc(sizeof(int) * count) ;
+    if (newlines == NULL)
+    {
+        free(oldlines) ;
+        *err = BASIC_ERR_OUT_OF_MEMORY ;
+        return ;
+    }
+
+    int start = getU32(line, 1) ;
+    int step = getU32(line, 5);
+
+    createLineMapping(oldlines, newlines, start, step) ;
+    updateLines(count, oldlines, newlines) ;
+
+    free(oldlines) ;
+    free(newlines) ;
+    sprintf(fmtbuf, "Renumbered %d lines\n", count) ;
+    (outfn)(fmtbuf, strlen(fmtbuf));
+}
+
 void basic_on(basic_line_t *line, exec_context_t *current, exec_context_t *nextline, basic_err_t *err, basic_out_fn_t outfn)
 {
     uint8_t token ;
@@ -2100,7 +2236,11 @@ static void exec_one_statement(basic_line_t *line, exec_context_t *current, exec
 
         case BTOKEN_LOAD:
             basic_load(line, err, outfn) ;
-            break ;     
+            break ;  
+
+        case BTOKEN_RENUM:
+            basic_renum(line, err, outfn) ;
+            break ;   
 
         case BTOKEN_ON:
             basic_on(line, current, nextline, err, outfn) ;

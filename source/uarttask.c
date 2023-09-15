@@ -13,6 +13,7 @@ static char buffer[256];
 static char other[256];
 static char lf = '\n';
 static char delete = 0x7f ;
+static char backspace[3] = { 0x08, 0x20, 0x08 } ;
 
 static void send_buffer()
 {
@@ -47,8 +48,17 @@ static void uart_event_handler(void *arg, cyhal_uart_event_t event)
             {
                 if (cindex > 0)
                 {
-                    len = 1;
-                    cyhal_uart_write(&cy_retarget_io_uart_obj, &delete, &len);
+                    if (buffer[cindex] == 0x08) 
+                    {
+                        len = 3;
+                        cyhal_uart_write(&cy_retarget_io_uart_obj, &backspace, &len);                        
+                    }
+                    else 
+                    {
+                        len = 1;
+                        cyhal_uart_write(&cy_retarget_io_uart_obj, &delete, &len);
+                    }
+
                     cindex--;
                 }
             }

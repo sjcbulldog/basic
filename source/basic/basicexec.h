@@ -23,6 +23,14 @@ static inline uint32_t getU32(basic_line_t *line, int index)
     return ret;
 }
 
+static inline void putU32(basic_line_t *line, int index, uint32_t value)
+{
+    line->tokens_[index++] = (value >> 0) & 0xff ;
+    line->tokens_[index++] = (value >> 8) & 0xff ;
+    line->tokens_[index++] = (value >> 16) & 0xff ;
+    line->tokens_[index++] = (value >> 24) & 0xff ;  
+}
+
 static inline double getDouble(basic_line_t *line, int index)
 {
     double value ;
