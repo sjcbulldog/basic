@@ -37,6 +37,7 @@ basic_line_t *program = NULL ;
 static const char *clearscreen = "\x1b[2J\x1b[;H";
 static const char *spaces = "        " ;
 static int space_count = 8 ;
+static int tab_size = 8 ;
 
 static for_stack_entry_t *for_stack = NULL ;
 static gosub_stack_entry_t *gosub_stack = NULL ;
@@ -1124,6 +1125,7 @@ void basic_print(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 {
     uint32_t index = 1 ;
     int len = 0 ;
+    bool trailing = true ;
 
     *err = BASIC_ERR_NONE ;    
 
@@ -1131,6 +1133,7 @@ void basic_print(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
         if (line->tokens_[index] == BTOKEN_TAB) 
         {
             index++ ;
+            trailing = true ;
 
             uint32_t expr = getU32(line, index) ;
             index += 4 ;
@@ -1158,6 +1161,7 @@ void basic_print(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
             index++ ;
             uint32_t expr = getU32(line, index) ;
             index += 4 ;
+            trailing = true ;
 
             basic_value_t *value = basic_expr_eval(expr, 0, NULL, NULL, err);
             if (value == NULL)
@@ -1184,10 +1188,14 @@ void basic_print(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
         if(index == line->count_)
             break ;
 
+        trailing = false ;
+
         assert(line->tokens_[index] == BTOKEN_COMMA || line->tokens_[index] == BTOKEN_SEMICOLON) ;
 
         if (line->tokens_[index] == BTOKEN_COMMA) {
-            int count = 8 - (len % 8) ;
+            int count = tab_size - (len % tab_size) ;
+            if (count == 0)
+                count = tab_size ;
             putSpaces(outfn, count) ;
             len += count;
         }
@@ -1195,7 +1203,7 @@ void basic_print(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
         index++ ;
     }
 
-    if (line->tokens_[line->count_ - 1] != BTOKEN_SEMICOLON)
+    if (trailing)
         (*outfn)("\n", 1) ;
 
     return ;

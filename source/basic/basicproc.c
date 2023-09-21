@@ -1247,7 +1247,7 @@ static const char* parse_list(basic_line_t* bline, const char* line, basic_err_t
                 //
                 // This is the case of START - END
                 //
-                line = basic_expr_parse_int(line, &start, err) ;
+                line = basic_expr_parse_int(line, &end, err) ;
                 if (line == NULL)
                     return NULL ;
             } else {
