@@ -891,12 +891,38 @@ static const char *parse_input(basic_line_t *bline, const char *line, basic_err_
         if (!add_uint32(bline, v)) {
             *err = BASIC_ERR_OUT_OF_MEMORY ;
             return NULL ;
-        }   
+        }
 
         line = skipSpaces(line) ;
 
         if (basic_is_end_of_line(line)) {
             break ;
+        }
+
+        if (*line == '(') {
+            uint32_t dimcnt ;
+            uint32_t dims[BASIC_MAX_DIMS] ;
+            line = basic_expr_parse_dims_expr(line, &dimcnt, dims, err) ;
+            if (line == NULL)
+                return NULL ;
+
+            if (!add_uint32(bline, dimcnt)) {
+                *err = BASIC_ERR_OUT_OF_MEMORY ;
+                return NULL ;
+            }             
+
+            for(uint32_t i = 0 ; i < dimcnt ; i++) {
+                if (!add_uint32(bline, dims[i])) {
+                    *err = BASIC_ERR_OUT_OF_MEMORY ;
+                    return NULL ;
+                }
+            }
+        }
+        else {
+            if (!add_uint32(bline, 0)) {
+                *err = BASIC_ERR_OUT_OF_MEMORY ;
+                return NULL ;
+            }            
         }
 
         if (*line != ',') {

@@ -46,7 +46,7 @@ TARGET=APP_CY8CPROTO-062-4343W
 #
 # If APPNAME is edited, ensure to update or regenerate launch
 # configurations for your IDE.
-APPNAME=basoc6
+APPNAME=basic-06
 
 # Name of toolchain to use. Options include:
 #

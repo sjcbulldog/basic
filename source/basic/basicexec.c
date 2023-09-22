@@ -146,6 +146,35 @@ static bool dimToString(basic_line_t* line, uint32_t str)
     return true;
 }
 
+static bool evalDims(basic_line_t *line, int index, int dimcnt, uint32_t *dims, basic_err_t *err)
+{
+    for(uint32_t i = 0 ; i < dimcnt ; i++) {
+        uint32_t exprindex = getU32(line, index) ;
+        index += 4 ;
+
+        basic_value_t* value = basic_expr_eval(exprindex, 0, NULL, NULL, err);
+        if (value == NULL)
+            return false ;
+
+        if (value->type_ == BASIC_VALUE_TYPE_STRING) {
+            basic_value_destroy(value);
+            *err = BASIC_ERR_TYPE_MISMATCH;
+            return false ;
+        }
+
+        if (value->value.nvalue_ < 0) {
+            basic_value_destroy(value);
+            *err = BASIC_ERR_INVALID_DIMENSION;
+            return;
+        }
+
+        dims[i] = (uint32_t)value->value.nvalue_;
+        basic_value_destroy(value);
+    }
+
+    return true ;
+}
+
 static bool letSimpleToString(basic_line_t* line, uint32_t str)
 {
     uint32_t varnameidx = getU32(line, 1);
@@ -1456,8 +1485,19 @@ void basic_input(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
 
             const char *varname = basic_str_value(v) ;
             if (!basic_var_get(varname, &varidx, err))
-                return ;
-            bool str = basic_var_is_string(varidx) ;
+                return ;            
+            bool str = basic_var_is_string(varidx) ;                
+            uint32_t dims[BASIC_MAX_DIMS] ;
+            uint32_t dimcnt = getU32(line, index) ;
+            basic_value_t *value ;
+
+            if (dimcnt != 0) {
+                if (!evalDims(line, index, dimcnt, dims, err)) {
+                    return ;
+                }
+
+                basic_var_set_array_value(varidx, value, dims, err) ;
+            }
 
             if (str) 
             {
@@ -1465,7 +1505,7 @@ void basic_input(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
                 // If the input variable is a string, all input is valid, store the input
                 // and return.
                 //
-                basic_var_set_value_string(varidx, text, err) ;
+                value = basic_value_create_string(text) ;
             }
             else
             {
@@ -1498,19 +1538,28 @@ void basic_input(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
                 //
                 // Valid number set the variables value and move to the next one
                 //
-                basic_var_set_value_number(varidx, num, err) ;
-
-                if (index == line->count_)
-                    break; 
-
-                text = skipSpaces(text) ;
-                if (*text != ',') {
-                    *err = BASIC_ERR_EXPECTED_COMMA ;
-                    isvalid = false ;
-                    continue ;
-                }
-                text++ ;
+                value = basic_value_create_number(num) ;
             }
+
+            if (dimcnt == 0) 
+            {
+                basic_var_set_value(varidx, value, err) ;
+            }
+            else 
+            {
+                basic_var_set_array_value(varidx, value, dims, err);
+            }
+
+            if (index == line->count_)
+                break; 
+
+            text = skipSpaces(text) ;
+            if (*text != ',') {
+                *err = BASIC_ERR_EXPECTED_COMMA ;
+                isvalid = false ;
+                continue ;
+            }
+            text++ ;
         }
         free(save) ;
     }
