@@ -165,7 +165,7 @@ static bool evalDims(basic_line_t *line, int index, int dimcnt, uint32_t *dims, 
         if (value->value.nvalue_ < 0) {
             basic_value_destroy(value);
             *err = BASIC_ERR_INVALID_DIMENSION;
-            return;
+            return false ;
         }
 
         dims[i] = (uint32_t)value->value.nvalue_;
@@ -1495,8 +1495,6 @@ void basic_input(basic_line_t *line, basic_err_t *err, basic_out_fn_t outfn)
                 if (!evalDims(line, index, dimcnt, dims, err)) {
                     return ;
                 }
-
-                basic_var_set_array_value(varidx, value, dims, err) ;
             }
 
             if (str) 
