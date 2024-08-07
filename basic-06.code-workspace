@@ -18,9 +18,9 @@
         //mtb//      macOS  : $HOME/Library/Application Support/Code/User/settings.json
         //mtb//      Linux  : $HOME/.config/Code/User/settings.json
         //mtb//
-        "modustoolbox.toolsPath": "/home/bwg/ModusToolbox/tools_3.1",
+        "modustoolbox.toolsPath": "C:/Users/butch/ModusToolbox/tools_3.2",
         "cortex-debug.armToolchainPath": "${config:modustoolbox.toolsPath}/gcc/bin",
-        "cortex-debug.openocdPath": "${config:modustoolbox.toolsPath}/openocd/bin/openocd",
+        "cortex-debug.openocdPath": "${config:modustoolbox.toolsPath}/../packs/ModusToolbox-PSoC-E84-Early-Access-Pack/tools/openocd/bin/openocd.exe",
         "cortex-debug.JLinkGDBServerPath.windows": "C:/Program Files/SEGGER/JLink/JLinkGDBServerCL.exe",
         "cortex-debug.JLinkGDBServerPath.osx": "/Applications/SEGGER/JLink/JLinkGDBServerCLExe",
         "cortex-debug.JLinkGDBServerPath.linux": "JLinkGDBServerCLExe",
