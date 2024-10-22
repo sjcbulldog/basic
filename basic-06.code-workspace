@@ -29,7 +29,13 @@
             "--log=verbose",
             "--background-index",
             "--compile-commands-dir=${workspaceFolder}/build"
-        ]
+        ],
+        "files.associations": {
+            "cy_retarget_io.h": "c",
+            "cy_wcm_error.h": "c",
+            "algorithm": "c",
+            "xiosbase": "c"
+        },
     },
     "extensions": {
         "recommendations": [ "marus25.cortex-debug", "ms-vscode.cpptools", "dan-c-underwood.arm" ]
